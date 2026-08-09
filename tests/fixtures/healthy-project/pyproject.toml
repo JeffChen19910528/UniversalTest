@@ -1,0 +1,7 @@
+[project]
+name = "healthy-project-fixture"
+version = "0.1.0"
+dependencies = ["fastapi"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

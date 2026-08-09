@@ -1,0 +1,7 @@
+fastapi==0.110.0
+psycopg2-binary==2.9.9
+# NOTE: this is a fixture file for discovery/secret-pattern-detection tests only.
+# The value below is not a real credential -- it exists so
+# tests/discovery/test_secrets.py-style assertions have something to detect
+# and prove is never leaked (see tests/e2e/test_e2e_pipeline.py).
+DATABASE_PASSWORD=s3cr3tFixtureValue123

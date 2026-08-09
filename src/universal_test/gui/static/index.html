@@ -1,0 +1,214 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universal Test</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<div class="app-shell">
+  <header class="top-bar">
+    <h1 id="app-title">Universal Test</h1>
+    <div class="lang-toggle">
+      <button id="lang-zh" data-lang="zh">繁體中文</button>
+      <button id="lang-en" data-lang="en">English</button>
+    </div>
+  </header>
+
+  <!-- First run welcome -->
+  <section id="screen-welcome" class="card">
+    <h2 data-i18n="welcome_title"></h2>
+    <p data-i18n="welcome_body"></p>
+    <ul>
+      <li data-i18n="welcome_li_structure"></li>
+      <li data-i18n="welcome_li_api"></li>
+      <li data-i18n="welcome_li_perf"></li>
+      <li data-i18n="welcome_li_db"></li>
+      <li data-i18n="welcome_li_regression"></li>
+    </ul>
+    <p data-i18n="welcome_no_code"></p>
+    <button class="btn primary" id="btn-start-welcome" data-i18n="welcome_cta"></button>
+  </section>
+
+  <!-- Main screen -->
+  <section id="screen-main" class="hidden">
+    <div class="card">
+      <span class="field-label" data-i18n="project_folder"></span>
+      <div class="path-row">
+        <input type="text" id="project-path" readonly data-i18n-placeholder="project_folder_placeholder">
+        <button class="btn" id="btn-pick-folder" data-i18n="choose_folder"></button>
+      </div>
+      <div id="project-validation" class="notice hidden"></div>
+    </div>
+
+    <div class="card">
+      <span class="field-label" data-i18n="target_label"></span>
+      <input type="url" id="target-url" data-i18n-placeholder="target_placeholder">
+      <p class="field-hint" data-i18n="target_hint"></p>
+    </div>
+
+    <div class="card">
+      <span class="field-label" data-i18n="checks_label"></span>
+      <div class="checkbox-row">
+        <input type="checkbox" id="chk-functional" checked>
+        <label for="chk-functional" data-i18n="chk_project_functional"></label>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="chk-performance">
+        <label for="chk-performance" data-i18n="chk_performance"></label>
+      </div>
+      <div id="perf-confirm-box" class="confirm-box hidden">
+        <p data-i18n="perf_warning"></p>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chk-performance-confirm">
+          <label for="chk-performance-confirm" data-i18n="perf_confirm_checkbox"></label>
+        </div>
+        <div id="perf-endpoint-section" class="hidden" style="margin-top:10px;">
+          <span class="field-label" data-i18n="perf_endpoint_label"></span>
+          <div id="perf-endpoint-list"></div>
+          <p id="perf-endpoint-status" class="field-hint hidden"></p>
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="chk-database">
+        <label for="chk-database" data-i18n="chk_database"></label>
+      </div>
+      <div id="database-fields" class="hidden" style="margin-left:28px;">
+        <div class="path-row">
+          <input type="text" id="database-profile-path" readonly data-i18n-placeholder="database_profile_placeholder">
+          <button class="btn" id="btn-pick-database-profile" data-i18n="choose_file"></button>
+        </div>
+      </div>
+
+      <details class="advanced">
+        <summary data-i18n="advanced_settings"></summary>
+        <div class="advanced-grid">
+          <div class="field wide">
+            <label class="field-label" data-i18n="adv_openapi"></label>
+            <div class="path-row">
+              <input type="text" id="adv-openapi" readonly>
+              <button class="btn" id="btn-pick-openapi" data-i18n="choose_file"></button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="field-label" data-i18n="adv_perf_profile"></label>
+            <select id="adv-perf-profile">
+              <option value="load">load</option>
+              <option value="baseline">baseline</option>
+              <option value="stress">stress</option>
+            </select>
+          </div>
+          <div class="field">
+            <label class="field-label" data-i18n="adv_timeout"></label>
+            <input type="number" id="adv-timeout" value="10" min="1" step="1">
+          </div>
+          <div class="field wide">
+            <label class="field-label" data-i18n="adv_baseline"></label>
+            <div class="path-row">
+              <input type="text" id="adv-baseline" readonly>
+              <button class="btn" id="btn-pick-baseline" data-i18n="choose_file"></button>
+            </div>
+          </div>
+          <div class="field wide">
+            <label class="field-label" data-i18n="adv_output_dir"></label>
+            <input type="text" id="adv-output-dir" placeholder="reports">
+          </div>
+        </div>
+
+        <div class="advanced-grid" style="margin-top:16px;">
+          <div class="field wide">
+            <span class="field-label" data-i18n="auth_section_title"></span>
+            <select id="auth-type">
+              <option value="none" data-i18n="auth_type_none"></option>
+              <option value="bearer" data-i18n="auth_type_bearer"></option>
+              <option value="api_key" data-i18n="auth_type_api_key"></option>
+              <option value="basic" data-i18n="auth_type_basic"></option>
+            </select>
+          </div>
+          <div class="field wide auth-fields hidden" id="auth-fields-bearer">
+            <label class="field-label" data-i18n="auth_bearer_env"></label>
+            <input type="text" id="auth-bearer-env" placeholder="API_TOKEN">
+          </div>
+          <div class="field auth-fields hidden" id="auth-fields-apikey-env">
+            <label class="field-label" data-i18n="auth_api_key_env"></label>
+            <input type="text" id="auth-apikey-env" placeholder="API_KEY">
+          </div>
+          <div class="field auth-fields hidden" id="auth-fields-apikey-header">
+            <label class="field-label" data-i18n="auth_api_key_header"></label>
+            <input type="text" id="auth-apikey-header" placeholder="X-API-Key">
+          </div>
+          <div class="field auth-fields hidden" id="auth-fields-basic-user">
+            <label class="field-label" data-i18n="auth_basic_user_env"></label>
+            <input type="text" id="auth-basic-user-env" placeholder="API_USER">
+          </div>
+          <div class="field auth-fields hidden" id="auth-fields-basic-pass">
+            <label class="field-label" data-i18n="auth_basic_pass_env"></label>
+            <input type="text" id="auth-basic-pass-env" placeholder="API_PASSWORD">
+          </div>
+          <p class="field-hint field wide" data-i18n="auth_hint"></p>
+        </div>
+      </details>
+    </div>
+
+    <button class="btn primary big" id="btn-start-assess" data-i18n="start_assessment"></button>
+  </section>
+
+  <!-- Progress screen -->
+  <section id="screen-progress" class="hidden card">
+    <h2 data-i18n="progress_title"></h2>
+    <ul class="progress-list" id="progress-list"></ul>
+    <p id="progress-counter" class="field-hint"></p>
+  </section>
+
+  <!-- Results screen -->
+  <section id="screen-results" class="hidden">
+    <div class="card">
+      <h2 data-i18n="results_title"></h2>
+      <div id="overall-status"></div>
+    </div>
+
+    <div class="card" id="quality-gate-card">
+      <h3 data-i18n="quality_gate_title"></h3>
+      <div id="quality-gate-body"></div>
+    </div>
+
+    <div class="card hidden" id="regression-card">
+      <h3 data-i18n="regression_title"></h3>
+      <div id="regression-body"></div>
+    </div>
+
+    <div class="card">
+      <h3 data-i18n="categories_title"></h3>
+      <div class="category-grid" id="category-grid"></div>
+    </div>
+
+    <div class="card" id="unassessed-card">
+      <h3 data-i18n="unassessed_title"></h3>
+      <div id="unassessed-list"></div>
+    </div>
+
+    <div class="card" id="findings-card">
+      <h3 data-i18n="findings_title"></h3>
+      <div id="findings-list"></div>
+    </div>
+
+    <div class="card">
+      <h3 data-i18n="report_actions_title"></h3>
+      <div class="actions-row">
+        <button class="btn" id="btn-open-html" data-i18n="open_html_report"></button>
+        <button class="btn" id="btn-open-json" data-i18n="open_json_report"></button>
+        <button class="btn" id="btn-open-md" data-i18n="open_md_report"></button>
+        <button class="btn" id="btn-open-folder" data-i18n="open_report_folder"></button>
+      </div>
+    </div>
+
+    <button class="btn" id="btn-new-assessment" data-i18n="new_assessment"></button>
+  </section>
+
+  <footer class="hint" data-i18n="footer_hint"></footer>
+</div>
+<script src="/static/i18n.js"></script>
+<script src="/static/app.js"></script>
+</body>
+</html>

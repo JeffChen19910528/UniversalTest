@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "universal-test"
+dynamic = ["version"]
+description = "Universal, project-agnostic automated discovery, testing, and initial quality assessment framework."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "UNLICENSED" }
+dependencies = [
+    "PyYAML>=6.0",
+    "httpx>=0.25",
+    "jsonschema>=4.19",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4",
+    "build>=1.0",
+]
+# Only needed to produce the portable Windows one-click UniversalTest.exe
+# (release/windows/); never a runtime dependency of the CLI, GUI, or Core.
+packaging = [
+    "pyinstaller>=6.0",
+]
+# Database drivers are adapter-local and optional: Core/Discovery/REST/Performance/
+# Assessment/Reporting must all work with zero of these installed. sqlite3 is stdlib
+# and always available, so it needs no entry here. Each driver is only imported
+# lazily inside its own adapters/database/<engine>.py module; a missing driver
+# degrades to a NOT_ASSESSED finding, never an ImportError surfacing elsewhere.
+database = [
+    "psycopg2-binary>=2.9",     # PostgreSQL
+    "mysql-connector-python>=8.0",  # MySQL
+    "pyodbc>=5.0",              # SQL Server (also needs an OS-level ODBC driver)
+]
+
+[project.scripts]
+universal-test = "universal_test.cli.main:run"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+# The GUI's static HTML/CSS/JS aren't .py files, so setuptools needs an
+# explicit include or a wheel install silently drops them (PyInstaller
+# doesn't have this problem since it reads straight from the source tree).
+"universal_test.gui" = ["static/*"]
+
+[tool.setuptools.dynamic]
+# Single source of truth for the version: src/universal_test/__init__.py::__version__.
+# Never duplicate this literal elsewhere -- CLI --version, tool_version fields, and
+# packaging metadata all read the same attribute (skill.md-derived V1 release rule).
+version = { attr = "universal_test.__version__" }
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# tests/fixtures/**/tests/test_*.py are fixture *content* for discovery/scan to
+# detect (sample projects with their own throwaway test files), not part of this
+# project's own suite -- collecting them causes module-name clashes between
+# fixtures that happen to share a filename (e.g. two fixtures' tests/test_main.py).
+norecursedirs = ["fixtures", ".venv", "*.egg-info", "build", "dist"]
+# All tests are plain functions; disable class-based collection so pytest
+# doesn't warn about domain dataclasses named TestCase/TestResult/TestTarget.
+python_classes = "NoClassBasedTests"

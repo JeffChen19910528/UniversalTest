@@ -1,0 +1,11 @@
+openapi: "3.0.0"
+info:
+  title: Failed Functional Project API
+  version: "1.0"
+paths:
+  /error:
+    get:
+      operationId: getError
+      responses:
+        "200":
+          description: OK expected but the fixture server always returns 500 here

@@ -1,0 +1,11 @@
+services:
+  app:
+    build: .
+    ports:
+      - "8000:8000"
+  db:
+    image: postgres:16
+    environment:
+      POSTGRES_PASSWORD: fixture_pw
+  cache:
+    image: redis:7

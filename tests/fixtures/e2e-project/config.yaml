@@ -1,0 +1,4 @@
+# Fixture config file with a connection-string *pattern* for discovery to detect.
+# Never a real credential -- see requirements.txt's note.
+database:
+  url: "postgresql://fixture_user:s3cr3tFixtureValue123@db.internal:5432/e2e"

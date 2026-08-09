@@ -1,0 +1,8 @@
+[project]
+name = "e2e-project-fixture"
+version = "0.1.0"
+description = "Canonical end-to-end fixture exercising discovery, functional, performance, database, and CI evidence in one project (V1 hardening audit)."
+dependencies = ["fastapi", "psycopg2-binary"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

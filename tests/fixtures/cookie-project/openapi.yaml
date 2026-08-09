@@ -1,0 +1,11 @@
+openapi: 3.0.0
+info:
+  title: Cookie Project API
+  version: "1.0"
+paths:
+  /with-cookie:
+    get:
+      operationId: getWithCookie
+      responses:
+        "200":
+          description: OK

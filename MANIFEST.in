@@ -1,0 +1,14 @@
+# Release packaging (V1.0): the sdist must contain exactly the distributable
+# package plus top-level metadata -- never the test suite, fixtures, examples,
+# reports, or any other development-only content. Without this file,
+# setuptools' default sdist file-finding picks up stray top-level files that
+# happen to sit next to tests/__init__.py, which is not intentional inclusion.
+prune tests
+prune examples
+prune docs
+prune reports
+prune plugins
+prune schemas
+prune .venv
+global-exclude __pycache__
+global-exclude *.py[cod]

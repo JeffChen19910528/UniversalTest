@@ -1,0 +1,69 @@
+# Universal Test -- GitLab CI example (Phase 8).
+#
+# This is a TEMPLATE, not a working pipeline: replace TARGET_URL and the
+# placeholder "start your application" line with whatever your project
+# actually needs. universal-test never starts, builds, or deploys the
+# project under test.
+#
+# Include this in your project's .gitlab-ci.yml, e.g.:
+#   include:
+#     - local: 'examples/ci/gitlab/universal-test.yml'
+
+variables:
+  TARGET_URL: "http://localhost:8080"   # replace with your application's URL
+
+quality_gate:
+  stage: test
+  image: python:3.11-slim
+
+  # install
+  before_script:
+    - pip install universal-test
+    - echo "TODO: start the application under test at $TARGET_URL"
+
+  # run -- --ci --yes for a fully non-interactive run; --baseline for
+  # regression comparison against a checked-in baseline.json (read-only --
+  # never overwritten by this job, see "Baseline strategy" below).
+  script:
+    - >
+      universal-test assess . \
+        --ci --yes \
+        --target "$TARGET_URL" \
+        --baseline baseline.json \
+        --output reports/
+    # Exit code contract (ARCHITECTURE.md section 12 / README.md):
+    #   0 = Quality Gate passed   1 = Quality Gate failed (regression/threshold)
+    #   2 = configuration error   3 = infrastructure/execution error
+    # GitLab fails the job automatically on any nonzero exit code -- no
+    # extra scripting needed for the common case.
+
+  # artifact -- always keep the report, whether the gate passed or failed
+  artifacts:
+    when: always
+    paths:
+      - reports/
+    expire_in: 30 days
+
+  rules:
+    - if: '$CI_PIPELINE_SOURCE == "merge_request_event"'
+    - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+
+# --- Baseline strategy -------------------------------------------------
+# baseline.json is read-only input to this job -- 'baseline compare' and
+# 'assess --baseline' never write to it. Update it deliberately, as its own
+# separate job restricted to the default branch (or a manually-triggered
+# one) -- never as a side effect of a merge request's own quality-gate run:
+#
+# update_baseline:
+#   stage: deploy
+#   image: python:3.11-slim
+#   script:
+#     - pip install universal-test
+#     - universal-test baseline save . --target "$TARGET_URL" --output baseline.json
+#     - git add baseline.json && git commit -m "chore: update baseline" && git push
+#   rules:
+#     - if: '$CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH'
+#       when: manual
+#
+# See README.md's "Pull request workflow" section for the recommended
+# main -> baseline, feature-branch -> compare -> gate flow.

@@ -1,0 +1,75 @@
+// Universal Test -- Jenkins example (Phase 8).
+//
+// This is a minimal, TEMPLATE declarative pipeline -- it uses only
+// standard Jenkins pipeline steps (sh, archiveArtifacts). No Jenkins-
+// specific SDK or plugin is used by universal-test itself, and none is
+// required by this file; universal-test remains a plain CLI shelled out
+// to like any other tool. Replace TARGET_URL and the placeholder
+// "start your application" stage with whatever your project actually
+// needs -- universal-test never starts, builds, or deploys the project
+// under test.
+
+pipeline {
+    agent any
+
+    environment {
+        TARGET_URL = 'http://localhost:8080'   // replace with your application's URL
+    }
+
+    stages {
+        stage('Install Universal Test') {
+            steps {
+                sh 'python -m pip install universal-test'
+            }
+        }
+
+        stage('Start application') {
+            steps {
+                // TODO: replace with however your project actually starts
+                sh 'echo "TODO: start the application under test at $TARGET_URL"'
+            }
+        }
+
+        stage('Run Quality Gate') {
+            steps {
+                // --ci --yes for a fully non-interactive run; --baseline for
+                // regression comparison against a checked-in baseline.json
+                // (read-only -- never overwritten by this pipeline, see
+                // "Baseline strategy" below).
+                //
+                // Exit code contract (ARCHITECTURE.md section 12 / README.md):
+                //   0 = Quality Gate passed   1 = Quality Gate failed (regression/threshold)
+                //   2 = configuration error   3 = infrastructure/execution error
+                // A nonzero exit fails this `sh` step, which fails the stage --
+                // no extra scripting needed for the common case.
+                sh '''
+                    universal-test assess . \
+                      --ci --yes \
+                      --target "$TARGET_URL" \
+                      --baseline baseline.json \
+                      --output reports/
+                '''
+            }
+        }
+    }
+
+    post {
+        // keep the report whether the gate passed or failed
+        always {
+            archiveArtifacts artifacts: 'reports/**', allowEmptyArchive: true
+        }
+    }
+}
+
+// --- Baseline strategy ---------------------------------------------------
+// baseline.json is read-only input to this pipeline -- 'baseline compare'
+// and 'assess --baseline' never write to it. Update it deliberately, as its
+// own separate, manually-triggered pipeline (or a scheduled job restricted
+// to `main`) -- never as a side effect of a feature-branch build's own
+// quality-gate run:
+//
+//   universal-test baseline save . --target "$TARGET_URL" --output baseline.json
+//   git add baseline.json && git commit -m "chore: update baseline" && git push
+//
+// See README.md's "Pull request workflow" section for the recommended
+// main -> baseline, feature-branch -> compare -> gate flow.
