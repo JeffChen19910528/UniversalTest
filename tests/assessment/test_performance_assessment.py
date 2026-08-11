@@ -1,4 +1,4 @@
-from universal_test.core.models.enums import AssessmentStatus
+from universal_test.core.models.enums import AssessmentStatus, FindingClassification
 from universal_test.testing.performance.models import (
     LevelResult,
     LoadProfile,
@@ -52,6 +52,7 @@ def test_threshold_breach_is_warning_not_fail():
     assert category.status == AssessmentStatus.WARNING
     assert len(category.findings) == 1
     assert "p95_ms" in category.findings[0].title
+    assert category.findings[0].classification == FindingClassification.DEFECT
 
 
 def test_threshold_pass_does_not_create_a_finding():

@@ -3,6 +3,130 @@
 All notable user-visible changes to this project are documented here.
 Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
+## [Unreleased]
+
+Frontend / Web Application Analysis Adapter (Phase 8.5) — discovery +
+testability assessment for frontend projects. Explicitly **not** browser/UI
+execution; see `docs/FRONTEND_ANALYSIS.md`.
+
+### Added
+
+- **Frontend framework/build-tool/test-framework detection**: React,
+  Next.js, Vue, Nuxt, Angular, Svelte, SvelteKit, Solid, Astro (dependency
+  or config-file evidence); Vite, Webpack, Rollup, Turbopack, Angular CLI
+  build tools; Jest, Vitest, Mocha, Karma, Jasmine, Testing Library
+  (unit-level) and Playwright, Cypress, WebdriverIO, Puppeteer (browser
+  automation) test frameworks — reported as distinct facts, never
+  conflated with each other.
+- **`ProjectModel.frontend` (`FrontendInfo`)**: bounded route/component/
+  form/API-client evidence (`FrontendSignal`, always labeled with its scan
+  bound), build/test npm scripts, frontend test directories, `.env.example`/
+  `.env.template` public key names (values never captured).
+- **`adapters/frontend/`**: discovery + testability assessment adapter,
+  following the existing REST/database adapter contract shape. Browser/UI
+  test generation and execution are explicit, honest stubs (`execute()`
+  raises `NotImplementedError`), not silent no-ops — reserved for a future
+  Browser Adapter.
+- **New "Frontend / Web Application Health" assessment category**, capped
+  below `FAIL` (missing test tooling is a testability gap, not a defect) —
+  same rule already used for database connectivity issues. `assess`'s
+  coverage/unassessed tracking gains a "Frontend Discovery" (always 100%)
+  and, whenever a frontend is detected, a "Browser/UI Execution" item
+  pinned at 0% and explicitly `NOT_ASSESSED`.
+- `universal-test scan`/`assess` (text/Markdown/JSON/HTML) and the GUI all
+  show a "Frontend / Web Application" section with an explicit
+  "Browser/UI Execution: NOT_ASSESSED" line, so "frontend detected" is
+  never read as "frontend tested."
+- New fixtures under `tests/fixtures/` (React+Vite+Vitest, Vue, Angular,
+  Next.js, SvelteKit, no-test-framework, malformed `package.json`, empty
+  frontend dir, malicious `package.json` scripts, backend-mentions-react
+  false-positive case) and corresponding discovery/adapter/assessment/
+  reporting tests, including a dedicated safety test asserting discovery
+  never spawns a subprocess or opens a socket.
+- New `docs/FRONTEND_ANALYSIS.md`.
+
+### Security
+
+- Frontend discovery is strictly read-only and offline: `package.json`
+  `scripts` are copied as inert display strings, never executed; no
+  package manager, browser, or network activity occurs during discovery.
+
+### Added (Static Web Analysis enhancement, same phase)
+
+- **Plain static HTML/CSS/JavaScript websites are now a first-class
+  frontend type** (`FrontendType.STATIC_WEB`) — no `package.json`,
+  lockfile, or config file required. A single root `index.html` is
+  sufficient on its own; multi-page sites, monorepo-style multiple app
+  roots (`frontend/index.html` + `admin/index.html`), and framework
+  precedence (a React project's own `index.html` never reclassifies it as
+  Static Web) are all handled explicitly.
+- Detected static sites report **HTML/CSS/JS file counts, entry point(s),
+  navigation-link, form, API-client (including WebSocket), responsive-design,
+  and authentication-UI structural evidence**, plus known CSS framework
+  detection (Bootstrap, Tailwind CSS, Bulma, Foundation — matched by
+  filename/link, never by an arbitrary class name).
+- **Conservative false-positive guards**: generated documentation
+  (`docs/`), code-coverage reports (`coverage/`/`htmlcov/`, now excluded
+  from discovery entirely alongside `node_modules`/`dist`/`build`), and
+  server-rendered backend templates (`templates/`) are not misclassified
+  as a standalone static frontend when there's no supporting CSS/JS.
+- New fixtures (`frontend-static-basic`, `frontend-static-form`,
+  `frontend-static-api`, `frontend-single-html`, `frontend-docs-only`,
+  `frontend-coverage-only`, `backend-html-template`,
+  `frontend-static-malicious-inline-script`) and corresponding
+  discovery/assessment/reporting tests, including a security test proving
+  an inline `<script>` with dangerous-looking content is only ever
+  matched as evidence text, never executed.
+
+### Added (Static Web Capability Detection & Assessment Semantics Hardening, same phase)
+
+- **A single rich HTML file is no longer misreported as "CSS: 0,
+  JavaScript: 0"** — `inline_css_count`/`inline_js_count` now report
+  inline `<style>`/`<script>` blocks additively alongside the existing
+  external-file counts.
+- **New capability detection**: interactive UI evidence (buttons, inputs,
+  event handlers); browser API evidence (microphone/MediaRecorder, speech
+  synthesis, storage, WebSocket, notifications, geolocation, clipboard,
+  file reading, IndexedDB — kept structurally separate from backend
+  API-client evidence); likely application pattern (static multi-page /
+  single-page application / static document, evidence-based, never
+  overclaimed); external resource evidence (e.g. "Google Fonts",
+  never fetched); Content-Security-Policy evidence.
+- **Authentication-UI detection hardened**: a real password field is
+  strong evidence; generic storage/header markers now only count as weak
+  evidence and only when co-occurring with an actual `<form>` — a
+  README/comment mention of "login"/"password"/"authentication" was
+  never sufficient and still isn't.
+- **`AssessmentFinding.classification`** (new field: `defect` /
+  `testability_gap` / `not_assessed` / `informational` /
+  `execution_failure`) — every existing finding across all assessment
+  modules now states explicitly whether it represents a confirmed
+  problem or a testability/coverage limitation.
+- **`ProjectAssessment.application_health`** (new field, independent of
+  the unchanged `overall_status`) — "no confirmed defects" unless a
+  category driven by something that actually executed (Functional
+  Health/Performance) shows a real problem. A project with only
+  testability-gap `WARNING`s (e.g. no test framework) now correctly shows
+  `application_health: PASS`.
+- **`ProjectAssessment.assessment_completeness`** (new field: "full"/
+  "partial") — derived from existing coverage/unassessed data.
+- **`Build / Project Health` no longer WARNs for a genuine static
+  website** with no package manager/build system — it reads `PASS` with
+  an explicit "not required for a static site" reason.
+- **`Project Discovery` no longer reads `UNKNOWN`/"0 languages" for a
+  valid static HTML/CSS/JS site** — static sites now get proper project-
+  type evidence even without a `package.json`.
+- CLI, GUI, and Markdown/HTML reports gained an "Assessment Summary"
+  (Application Health / Testability / Assessment Coverage, each with a
+  plain-language explanation), a classification label on every finding,
+  and an explicit clarifying sentence next to Quality Gate `PASS`/`FAIL`.
+- **No changes** to `overall_status`, `compute_overall_status`, Quality
+  Gate policy evaluation, regression/baseline comparison, or CLI exit
+  codes — all additive, no false `PASS`, no numeric quality score.
+- New `frontend-static-rich-spa` fixture (modeled on a real single-file
+  microphone/speech-synthesis web app) plus corresponding discovery/
+  assessment/reporting tests.
+
 ## [1.1.1] — 2026-08-10
 
 Final QA / stabilization pass on the V1.1 GUI, based on an external audit.

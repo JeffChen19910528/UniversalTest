@@ -1877,3 +1877,258 @@ no `1`/`3`) — deliberately not retrofitted this phase (§15 assumption 31).
     brief's explicit `0/1/2/3` contract (§4). A CI consumer that wants
     warnings to block a build can promote the relevant rule from `warn_on`
     to `fail_on` in its own policy instead.
+36. Frontend framework/language/build-system/test-framework facts reuse the
+    existing `FrameworkDetection`/`LanguageDetection`/`BuildSystemDetection`/
+    `TestFrameworkDetection` lists on `ProjectModel` rather than duplicating
+    them into a parallel frontend-specific model — `FrontendInfo` only
+    carries evidence kinds with no existing home (routes/components/forms/
+    API-client signals, build/test npm scripts, env-file public key names).
+    See §16.
+
+## 16. Frontend / Web Application Analysis Adapter (`discovery/frontend.py`, `adapters/frontend/`, `assessment/frontend_assessment.py` — implemented)
+
+Frontend **discovery + testability assessment** only — no browser/UI
+execution. That remains a distinct, unimplemented future capability
+(Browser Adapter); every surface (discovery, assessment, CLI, reports, GUI)
+says so explicitly rather than letting "frontend detected" be read as
+"frontend tested."
+
+### 16.1 Pipeline
+
+`discovery/engine.py`'s existing detector loop gained one more step,
+`detect_frontend(files, bundle) -> FrontendInfo`, run unconditionally
+alongside languages/frameworks/build-systems/test-frameworks — like every
+other detector, a failure here is caught and recorded as a warning, never
+aborting the rest of the scan. It is entirely read-only and offline: it
+only reads files `filesystem.walk` already collected (bounded, capped file
+counts) — it never runs `npm`/`node`/a package manager, launches a browser,
+or opens a network connection. `package.json` `scripts` are copied as
+inert strings for display, never executed (a malicious `"prepare"` script
+in a scanned repository must not run).
+
+### 16.2 What's new vs. reused (§4.1 "never overclaim")
+
+- **Reused as-is**: `framework.py` gained Next.js/Nuxt/Svelte/SvelteKit/
+  Solid/Astro (dependency or config-file evidence, same pattern as
+  React/Angular/Vue); `project_type.py`'s `detect_build_systems` gained
+  Vite/Webpack/Rollup/Turbopack/Angular CLI bundler detections, distinct
+  entries from the pre-existing npm/yarn/pnpm package-manager entries so
+  "framework" vs. "build tool" vs. "meta-framework" stay distinguishable
+  facts, never conflated; `test_framework.py` gained Playwright/Cypress/
+  Testing Library/WebdriverIO/Puppeteer/Karma/Jasmine.
+- **New** (`discovery/models.py`): `FrontendSignal` (one reusable
+  `status`/`count`/`evidence`/`note` shape for routes/components/forms/
+  API-client evidence — avoids four near-duplicate classes) and
+  `FrontendInfo` (the `ProjectModel.frontend` field), which only holds
+  build/test npm scripts, frontend test directories, `.env.example`/
+  `.env.template` **key names only** (values are never read into the
+  model — mirrors `SecretFinding.to_dict()`'s existing `"value":
+  "[REDACTED]"` convention), and the four `FrontendSignal`s.
+
+### 16.3 Bounded heuristic scanning, honestly labeled
+
+Route/component/form/API-client evidence comes from a substring scan of up
+to 300 files under recognized frontend source roots (`src/`, `app/`,
+`pages/`, `components/`, `routes/`, `views/`). Every `FrontendSignal.note`
+states this bound explicitly (e.g. "heuristic, bounded scan of up to 300
+frontend source file(s)") so nothing is ever presented as exhaustive route/
+component discovery — the wording is always "evidence detected," never
+"all routes found."
+
+### 16.4 Adapter (`adapters/frontend/adapter.py`)
+
+Mirrors `adapters/rest/adapter.py`'s shape (free `discover()` function +
+`FrontendAdapter` class implementing the §5 `detect/describe/discover/
+generate_tests/execute/collect_metrics` contract) for architectural
+completeness. `generate_tests()` returns `[]` and `execute()` raises an
+explicit `NotImplementedError` — honest stubs, not silent no-ops, since
+actual browser/UI test generation and execution is out of scope for this
+version.
+
+### 16.5 Assessment (`assessment/frontend_assessment.py`)
+
+A "Frontend / Web Application Health" category, added to
+`assessment/engine.py`'s existing category list with **no new
+`build_assessment` parameter** — unlike the database category (which needs
+an out-of-band connection profile), this only reads `model.frontend`,
+already populated unconditionally by `discover()`. Status is capped below
+`FAIL` (same rule `database_assessment.py` already enforces for
+connectivity problems): missing frontend test tooling is a testability
+gap, not proof the frontend itself is broken, so this category only ever
+reports `PASS`/`WARNING`/`NOT_ASSESSED`. `_compute_coverage`/
+`_compute_unassessed` gained a "Frontend Discovery" (always 100%) and, only
+when a frontend was actually detected, a "Browser/UI Execution" item
+pinned at 0% with an explicit `NOT_ASSESSED` reason — the concrete
+mechanism behind the "frontend detected ≠ frontend tested" rule everywhere
+else in this section.
+
+### 16.6 Reporting / CLI / GUI
+
+`reporting/json_report.py` needed **zero changes** — it already serializes
+`bundle.model.to_dict()` whole, and `ProjectModel.to_dict()` now includes
+`frontend`; the new assessment category/findings flow through the existing
+generic `assessment.categories`/`findings` loops the same way. Markdown/
+HTML reports and `discovery/serializers.py` (plain `scan`) gained an
+explicit "Frontend / Web Application" section with a
+"Browser/UI Execution: NOT_ASSESSED" line. The GUI's category grid already
+renders every `assessment.categories` entry generically, so the new
+category appears automatically; `app.js` additionally appends the same
+Browser/UI-not-assessed note directly on the frontend card (not just
+buried in the Unassessed list), and `i18n.js` gained the Traditional
+Chinese/English category label.
+
+### 16.7 Static Web Analysis (Static Web Analysis brief, extends §16 above)
+
+A frontend does not need a `package.json`/lockfile/config file at all — a
+plain HTML/CSS/JS website is a first-class frontend type, not a fallback.
+`discovery/models.py` gained a `FrontendType` enum
+(`STATIC_WEB`/`FRAMEWORK_WEB`/`FULL_STACK_WEB`/`UNKNOWN_WEB`) and
+`FrontendInfo` gained `frontend_type`, `entry_points`, `web_roots`,
+`html_page_count`/`css_file_count`/`js_file_count`, `css_frameworks`, and
+two more `FrontendSignal`s (`responsive`, `auth_ui`) — reusing the same
+`FrontendSignal` shape already established for routes/components/forms/
+API-clients rather than inventing per-concept classes (brief §11's "inspect
+existing models first" rule, applied again).
+
+**Detection is entirely structural**, never AST-based: `_detect_frontend_flag`
+(manifest/config-driven) and the new `_detect_static_web` (HTML-file-driven)
+in `discovery/frontend.py` run independently, and either one alone is
+sufficient for `detected=True`. `_detect_static_web`'s false-positive guard
+(brief §20) treats a lone non-root HTML file under a generated-docs- or
+server-template-like directory (`docs/`, `templates/`, `_build/`, `site/`)
+with no accompanying CSS/JS as insufficient evidence — never silently
+assumed to be the project's real frontend; `coverage/`/`htmlcov/` were
+added to `filesystem.py`'s `EXCLUDED_DIR_NAMES` so generated coverage HTML
+never even reaches this logic (same mechanism already used for
+`node_modules`/`dist`/`build`).
+
+**Framework precedence is structural, not a special case**: `detect_frontend`
+now takes `model.frameworks` (already populated earlier in
+`discovery/engine.py`'s step loop — the closure captures `model` and reads
+`.frameworks` at call time) and checks `has_frontend_framework`/
+`has_backend_framework` *before* even looking at the static-web result, so
+a React project's own `index.html` can never downgrade its classification
+to `STATIC_WEB` (brief §26). `FULL_STACK_WEB` is `has_frontend_framework
+or static.detected` **and** a recognized backend web framework
+(`BACKEND_WEB_FRAMEWORK_NAMES` — FastAPI/Django/Flask/Express/ASP.NET
+Core/Spring Boot/Laravel/Node.js) both present.
+
+The existing bounded-scan machinery (`_scan_signal`, 300-file cap) was
+reused as-is for the two new signals plus widened to also scan `.html`/
+`.htm` content for routes/forms/API-client markers — no new scanning
+infrastructure was introduced. CSS framework evidence
+(`_detect_css_frameworks`) matches only filenames and `<link href>`/
+content markers for four well-known libraries, deliberately never inferred
+from an arbitrary class name (brief §8's explicit "`class=\"container\"`
+is not sufficient proof of Bootstrap").
+
+`assessment/frontend_assessment.py`'s summary text branches on
+`frontend_type` (a `STATIC_WEB`/`UNKNOWN_WEB` project reports HTML/CSS/JS
+counts; everything else keeps the original framework/language/build
+summary) but the `PASS`/`WARNING`/`NOT_ASSESSED`-only status cap and the
+"no test framework ≠ broken" rule are unchanged and apply identically to
+static sites. Reporting/CLI output gained the new fields
+(`frontend_type`, `entry_points`, HTML/CSS/JS counts, CSS frameworks,
+responsive/auth-UI rows); the GUI needed **no** code change at all — the
+category card already renders `category.summary` generically, so the new
+static-web summary text appears automatically.
+
+### 16.8 Static Web Capability Detection & Assessment Semantics Hardening (extends §16.7)
+
+A real-world static-web project (essentially one `index.html` with heavy
+inline CSS/JS, microphone/speech-synthesis/localStorage usage) surfaced two
+gaps: `css_file_count`/`js_file_count` only ever counted *external*
+`.css`/`.js` files, so a rich single-file app misreported as "CSS: 0,
+JavaScript: 0"; and several `WARNING`-status categories (missing test
+framework, missing build system) had no way to be told apart from an
+actual application defect, so a non-technical user reading several
+`WARNING` rows reasonably (but wrongly) concluded the app itself was
+broken.
+
+**New static-web capability detections** (`discovery/frontend.py`, all
+reusing the existing bounded 300-file scan and `FrontendSignal` shape, no
+HTML parser, `re` used only for simple tag matching — never a DOM parse):
+`inline_css_count`/`inline_js_count` (regex-counted `<style>`/`<script
+[no src=]>` blocks, additive to the existing external-file counts, never
+replacing them), `interactive_ui` (`<button>`/`<input>`/`onclick=`/
+`addEventListener(` etc.), `browser_apis` (a name list —
+MediaRecorder/getUserMedia/speechSynthesis/AudioContext/storage/
+WebSocket/Notification/Geolocation/Clipboard/FileReader/IndexedDB —
+deliberately disjoint from `_API_CLIENT_MARKERS` so a microphone API is
+never reported as a "backend API client"), `application_pattern`
+(`static_multi_page`/`single_page_application`/`static_document`, a
+bounded heuristic requiring real supporting evidence before claiming
+`single_page_application`), `external_resources` (a few well-known CDN/
+font hosts normalized to a friendly label, e.g. "Google Fonts", plus
+generic external-stylesheet/script/image markers — never fetched), `csp`
+(`Content-Security-Policy` meta/header string presence).
+
+**Auth-UI hardening** (`_scan_auth_ui`): tiered into strong
+(`type="password"` → `DETECTED`) vs. weak (`localStorage`/`sessionStorage`/
+`Authorization`/`Bearer`, which are common in code that has nothing to do
+with a login form — only counted when co-occurring with a `<form>` in the
+same file, and capped at `INFERRED`). No marker was ever a bare prose word
+("login"/"password"/"authentication"), so a README/comment mention was
+already never sufficient; the tiering additionally stops generic storage/
+header usage alone from being reported at the same confidence as an actual
+password field.
+
+**Assessment semantics — additive, not a replacement.** `overall_status`/
+`compute_overall_status`/Quality Gate/regression/baseline/CLI exit codes
+are **entirely unchanged** — this was a deliberate design constraint (no
+false PASS, no numeric score). Two small additions layer on top instead:
+
+- `FindingClassification` enum (`core/models/enums.py`) +
+  `AssessmentFinding.classification` (default `INFORMATIONAL`, so all 12
+  pre-existing call sites — verified by grep — needed no signature changes,
+  only an explicit value at each site: `FUNC-FAILED`→`DEFECT`,
+  `FUNC-ERROR`→`EXECUTION_FAILURE`, `PERF-*` threshold breaches→`DEFECT`,
+  `TESTINFRA-001`/`FRONTEND-NO-TEST`/`FRONTEND-NO-BROWSER-TEST`→
+  `TESTABILITY_GAP`, `DISC-001`/`CFG-SECRET-*`/`DB-NO-PK`/`DB-NO-FK`→
+  `INFORMATIONAL`, `DB-WARN`→`NOT_ASSESSED`).
+- `assessment/rules.py::compute_application_health(categories)` — a
+  **category-name whitelist**, not a classification-based aggregation:
+  `PASS` ("no confirmed defects") unless `Functional Health`/`Performance`
+  (the *only* two categories whose status is ever driven by
+  `execution_health_status()`, i.e. something that actually ran against
+  the live project) report `WARNING`/`FAIL`. Every other category is
+  already architecturally incapable of reaching `FAIL` (each module's own
+  docstring says so), so a classification-based aggregation was considered
+  and rejected as unnecessary complexity — the whitelist is simpler,
+  already exactly correct, and trivially unit-tested.
+  `ProjectAssessment.application_health` (new field) is computed once in
+  `build_assessment` and is completely independent of `overall_status`.
+- `ProjectAssessment.assessment_completeness` ("full"/"partial", new
+  field) — purely derived from the pre-existing `coverage`/`unassessed`
+  lists (`"full"` iff every `CoverageItem.percent == 100.0` and
+  `unassessed` is empty); no new detection logic. In practice this is
+  always `"partial"` today, since `_compute_unassessed` unconditionally
+  includes "Business logic correctness" — an honest reflection that this
+  tool can never fully assess that dimension, not a bug.
+
+**Static-web-specific fixes**, independent of the classification work:
+`discovery_assessment.py::assess_build_health` now reads `PASS` (not
+`WARNING`) when `model.build_systems` is empty and
+`model.frontend.frontend_type` is `STATIC_WEB`/`UNKNOWN_WEB` — a real
+backend/JS project still has `build_systems` populated via pip/npm/etc.,
+so this branch is unreachable for anything but a genuine static site.
+`discovery/frontend.py`'s `_detect_static_web` was renamed to public
+`detect_static_web` and wired into `project_type.py::detect_project_types`
+(called only when the existing `package.json`-driven frontend branch found
+nothing) so a plain static site gets a `ProjectTypeDetection(name="frontend")`
+entry too — this alone fixes `assess_project_discovery` reading `PASS`
+instead of `UNKNOWN` for a valid HTML/CSS/JS site with "0 languages."
+
+**Reporting/CLI/GUI**: `reporting/json_report.py` needed one addition this
+time (unlike prior additive-only passes) — its `assessment` sub-dict is
+hand-built, not `ProjectAssessment.to_dict()` directly, so
+`application_health`/`assessment_completeness` had to be added explicitly.
+Markdown/HTML gained an "Assessment Summary" block (Application Health /
+Testability / Assessment Coverage, each with a one-sentence explanation)
+placed before the existing full category table, not replacing it; findings
+gained a `classification` label; Quality Gate gained a fixed clarifying
+sentence per pass/fail. The GUI's `_outcome_to_dict` needed **no** backend
+change (it already forwards `assessment.to_dict()` whole); `app.js` gained
+a `renderAssessmentSummary()` block and a classification badge per
+finding, both additive to the existing generic category-grid/finding-list
+rendering, not a redesign.

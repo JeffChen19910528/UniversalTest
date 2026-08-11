@@ -76,6 +76,57 @@ def test_secret_pattern_never_appears_in_any_report_format():
         # redaction marker made it all the way through instead of the raw pattern data.
 
 
+def test_static_web_json_report_includes_type_and_counts():
+    bundle = _bundle_for("frontend-static-basic")
+    parsed = json.loads(to_json(bundle))
+    fe = parsed["discovery"]["frontend"]
+    assert fe["frontend_type"] == "static_web"
+    assert fe["html_page_count"] == 2
+    assert fe["entry_points"] == ["index.html"]
+
+
+def test_static_web_markdown_and_html_reports_show_type():
+    bundle = _bundle_for("frontend-static-basic")
+    md = to_markdown(bundle)
+    html_text = to_html(bundle)
+    assert "static_web" in md
+    assert "static_web" in html_text
+    assert "HTML pages" in md
+    assert "HTML pages" in html_text
+
+
+def test_json_report_includes_frontend_section_for_free():
+    bundle = _bundle_for("react-vite-vitest")
+    parsed = json.loads(to_json(bundle))
+    assert parsed["discovery"]["frontend"]["detected"] is True
+    frontend_category = next(
+        c for c in parsed["assessment"]["categories"] if c["name"] == "Frontend / Web Application Health"
+    )
+    assert frontend_category["status"] in ("pass", "warning")
+
+
+def test_markdown_report_has_frontend_section_and_not_assessed_marker():
+    bundle = _bundle_for("react-vite-vitest")
+    md = to_markdown(bundle)
+    assert "## Frontend / Web Application" in md
+    assert "Browser/UI Execution: NOT_ASSESSED" in md
+
+
+def test_html_report_has_frontend_section_and_not_assessed_marker():
+    bundle = _bundle_for("react-vite-vitest")
+    html_text = to_html(bundle)
+    assert "Frontend / Web Application" in html_text
+    assert "Browser/UI Execution: NOT_ASSESSED" in html_text
+
+
+def test_env_example_values_never_leak_only_key_names():
+    bundle = _bundle_for("react-vite-vitest")
+    assert bundle.model.frontend.env_public_keys == ["VITE_API_BASE_URL", "VITE_FEATURE_FLAG_NEW_UI"]
+    for rendered in (to_json(bundle), to_markdown(bundle), to_html(bundle)):
+        # the raw "KEY=value" line must never appear verbatim - only the key name may
+        assert "VITE_FEATURE_FLAG_NEW_UI=false" not in rendered
+
+
 def test_html_escapes_finding_content(tmp_path):
     # a malicious-looking file name should never break out of the HTML it's embedded in
     model = discover("tests/fixtures/healthy-project")
@@ -89,3 +140,42 @@ def test_html_escapes_finding_content(tmp_path):
     html_text = to_html(bundle)
     assert "<script>alert(1)</script>" not in html_text
     assert "&lt;script&gt;" in html_text
+
+
+def test_application_health_and_completeness_appear_in_json():
+    bundle = _bundle_for("frontend-static-basic")
+    parsed = json.loads(to_json(bundle))
+    assert parsed["assessment"]["overall_status"] == "warning"
+    assert "application_health" in parsed["assessment"]
+    assert "assessment_completeness" in parsed["assessment"]
+
+
+def test_finding_classification_appears_in_json():
+    bundle = _bundle_for("frontend-static-basic")
+    parsed = json.loads(to_json(bundle))
+    findings = parsed["findings"]
+    assert findings
+    assert all("classification" in f for f in findings)
+
+
+def test_assessment_summary_appears_in_markdown_and_html():
+    bundle = _bundle_for("frontend-static-basic")
+    md = to_markdown(bundle)
+    html_text = to_html(bundle)
+    assert "## Assessment Summary" in md
+    assert "Application Health" in md
+    assert "no confirmed defect" in md.lower()
+    assert "Assessment Summary" in html_text
+    assert "Application Health" in html_text
+
+
+def test_rich_spa_report_shows_inline_css_js_and_browser_apis():
+    bundle = _bundle_for("frontend-static-rich-spa")
+    md = to_markdown(bundle)
+    parsed = json.loads(to_json(bundle))
+    fe = parsed["discovery"]["frontend"]
+    assert fe["inline_css_count"] == 1
+    assert fe["inline_js_count"] == 1
+    assert "MediaRecorder" in fe["browser_apis"]
+    assert "inline CSS blocks: 1" in md
+    assert "inline JS blocks: 1" in md

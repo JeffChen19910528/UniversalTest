@@ -9,6 +9,19 @@ def _status_badge(status_value: str) -> str:
     return status_value.upper()
 
 
+_CLASSIFICATION_LABELS = {
+    "defect": "Confirmed defect signal - something that actually executed showed a problem.",
+    "testability_gap": "Testability limitation - automated coverage is limited here. This does NOT indicate the application has a defect.",
+    "not_assessed": "Not assessed - this could not be fully evaluated.",
+    "informational": "Informational - an unconfirmed observation, not a proven issue.",
+    "execution_failure": "Execution/connectivity failure - the target could not be reached, distinct from a behavioral defect.",
+}
+
+
+def _classification_label(classification_value: str) -> str:
+    return _CLASSIFICATION_LABELS.get(classification_value, classification_value)
+
+
 def to_markdown(bundle: AssessReportBundle) -> str:
     a = bundle.assessment
     model = bundle.model
@@ -28,6 +41,31 @@ def to_markdown(bundle: AssessReportBundle) -> str:
         lines.append(f"| {c.name} | {_status_badge(c.status.value)} |")
     lines.append("")
 
+    # Assessment Summary - a WARNING category does not by itself mean the
+    # application is broken (Semantics Hardening brief §10/§11/§29):
+    # Application Health only reflects categories driven by something that
+    # actually executed against the live project; Testability/Assessment
+    # Coverage are separate dimensions, not folded into one status.
+    testability_cat_for_summary = next(c for c in a.categories if c.name == "Testability")
+    lines += ["## Assessment Summary", ""]
+    lines += [
+        f"- **Application Health: {_status_badge(a.application_health.value)}** - "
+        "reflects only categories driven by something that actually executed "
+        "(Functional/Performance). A `PASS` here means no confirmed defect was "
+        "found; it does not mean every capability was tested."
+    ]
+    lines += [
+        f"- **Testability: {_status_badge(testability_cat_for_summary.status.value)}** - "
+        "how testable this project currently is (test framework/target/fixture "
+        "availability), independent of whether the application itself works."
+    ]
+    lines += [
+        f"- **Assessment Coverage: {a.assessment_completeness.upper()}** - whether every "
+        "assessable area was actually assessed this run; see Coverage/Unknown "
+        "sections below for what wasn't."
+    ]
+    lines.append("")
+
     # Quality Gate (Phase 8) — always present in 'assess' output, deterministic default policy
     lines += ["## Quality Gate", ""]
     if bundle.quality_gate is None:
@@ -35,6 +73,11 @@ def to_markdown(bundle: AssessReportBundle) -> str:
     else:
         qg = bundle.quality_gate
         lines.append(f"**{_status_badge(qg.status.value)}** (exit code {qg.exit_code})")
+        if qg.status.value == "pass":
+            lines.append("> No configured quality-gate rule failed. This does not mean all "
+                          "application behavior was tested.")
+        elif qg.status.value == "fail":
+            lines.append("> A configured quality-gate condition failed. See findings below.")
         if qg.reason:
             lines.append(f"\n> Reason: {qg.reason}")
         lines.append("")
@@ -130,6 +173,59 @@ def to_markdown(bundle: AssessReportBundle) -> str:
                 )
     lines.append("")
 
+    # Frontend / Web Application
+    frontend_cat = next((c for c in a.categories if c.name == "Frontend / Web Application Health"), None)
+    lines += ["## Frontend / Web Application", ""]
+    if frontend_cat is not None:
+        lines += [f"**Status: {_status_badge(frontend_cat.status.value)}**", ""]
+        lines += [frontend_cat.summary]
+        if frontend_cat.reason:
+            lines.append(f"\n> Reason: {frontend_cat.reason}")
+    fe = model.frontend
+    if fe.detected:
+        lines.append("")
+        if fe.frontend_type:
+            lines.append(f"- **Type:** `{fe.frontend_type.value}`")
+        if fe.entry_points:
+            lines.append(f"- **Entry point(s):** {', '.join(f'`{e}`' for e in fe.entry_points)}")
+        if len(fe.web_roots) > 1:
+            lines.append(f"- **Multiple web roots detected:** {', '.join(f'`{r}`' for r in fe.web_roots)}")
+        if fe.html_page_count or fe.css_file_count or fe.js_file_count:
+            lines.append(
+                f"- **HTML pages:** {fe.html_page_count} · **CSS files:** {fe.css_file_count} · "
+                f"**JS files:** {fe.js_file_count} (inline CSS blocks: {fe.inline_css_count}, "
+                f"inline JS blocks: {fe.inline_js_count})"
+            )
+        if fe.application_pattern:
+            lines.append(
+                f"- **Application pattern:** `{fe.application_pattern}` "
+                "_(evidence suggests, not confirmed - static analysis cannot verify runtime behavior)_"
+            )
+        if fe.css_frameworks:
+            lines.append(f"- **CSS frameworks:** {', '.join(fe.css_frameworks)}")
+        if fe.browser_apis:
+            lines.append(f"- **Browser APIs detected:** {', '.join(fe.browser_apis)}")
+        if fe.external_resources:
+            lines.append(f"- **External resources:** {', '.join(fe.external_resources)}")
+        lines.append("")
+        lines.append("| Signal | Status |")
+        lines.append("|---|---|")
+        lines.append(f"| Routes | {fe.routes.status.value} |")
+        lines.append(f"| Components | {fe.components.status.value} |")
+        lines.append(f"| Forms | {fe.forms.status.value} |")
+        lines.append(f"| Interactive UI | {fe.interactive_ui.status.value} |")
+        lines.append(f"| API clients | {fe.api_clients.status.value} |")
+        lines.append(f"| Responsive design | {fe.responsive.status.value} |")
+        lines.append(f"| Authentication UI | {fe.auth_ui.status.value} |")
+        lines.append(f"| Content-Security-Policy | {fe.csp.status.value} |")
+        lines.append("")
+        lines.append(
+            "> **Browser/UI Execution: NOT_ASSESSED** - browser automation adapter is not "
+            "enabled in this version. Frontend detected does not mean the frontend was "
+            "functionally tested."
+        )
+    lines.append("")
+
     # Regression (Phase 7 — only present when --baseline was given)
     lines += ["## Regression", ""]
     if bundle.regression is None:
@@ -167,6 +263,7 @@ def to_markdown(bundle: AssessReportBundle) -> str:
             lines.append(f"### [{f.severity.value.upper()}] {f.title}")
             lines.append(f"- Category: {f.category}")
             lines.append(f"- Status: {_status_badge(f.status.value)}")
+            lines.append(f"- Type: {_classification_label(f.classification.value)}")
             lines.append(f"- Confidence: {f.confidence}")
             lines.append(f"- {f.description}")
             for ev in f.evidence:

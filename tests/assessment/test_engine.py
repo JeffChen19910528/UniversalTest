@@ -23,12 +23,13 @@ def test_schema_version_present():
     assert assessment.schema_version == SCHEMA_VERSION
 
 
-def test_eight_categories_present():
+def test_nine_categories_present():
     assessment = _build_for("healthy-project")
     names = {c.name for c in assessment.categories}
     assert names == {
         "Project Discovery", "Build / Project Health", "Testability", "Functional Health",
         "Performance", "Database Health", "Configuration Hygiene", "Test Infrastructure",
+        "Frontend / Web Application Health",
     }
 
 
@@ -74,15 +75,29 @@ def test_no_target_no_openapi_unknown_project():
     assert assessment.overall_status == AssessmentStatus.WARNING
 
 
-def test_coverage_has_five_items():
+def test_coverage_has_six_items():
     assessment = _build_for("healthy-project")
     names = {c.name for c in assessment.coverage}
-    assert names == {"Discovery", "API Discovery", "Functional Execution", "Performance Execution", "Database"}
+    assert names == {
+        "Discovery", "API Discovery", "Functional Execution", "Performance Execution", "Database",
+        "Frontend Discovery",
+    }
 
 
 def test_unassessed_always_includes_business_logic():
     assessment = _build_for("healthy-project")
     assert any(u.name == "Business logic correctness" for u in assessment.unassessed)
+
+
+def test_frontend_detected_project_reports_browser_ui_not_assessed():
+    assessment = _build_for("mixed-project")
+    assert any(u.name == "Browser/UI Execution" for u in assessment.unassessed)
+    coverage_names = {c.name for c in assessment.coverage}
+    assert "Browser/UI Execution" in coverage_names
+    browser_coverage = next(c for c in assessment.coverage if c.name == "Browser/UI Execution")
+    assert browser_coverage.percent == 0.0
+    frontend_category = next(c for c in assessment.categories if c.name == "Frontend / Web Application Health")
+    assert frontend_category.status != AssessmentStatus.FAIL
 
 
 def test_limitations_present_and_non_empty():
@@ -118,3 +133,40 @@ def test_empty_project_is_handled(tmp_path):
     # never crashes on a totally empty project; overall_status is still one of the
     # defined values (WARNING here, since Build Health/Test Infra both flag correctly)
     assert assessment.overall_status in (AssessmentStatus.UNKNOWN, AssessmentStatus.WARNING)
+
+
+def test_application_health_is_pass_when_only_testability_gaps_present():
+    # frontend-static-basic has WARNING categories (Test Infrastructure,
+    # Frontend Health "no test framework") purely from missing test
+    # tooling - overall_status reflects that (unchanged), but
+    # application_health must read "no confirmed defects" (brief §10/§11).
+    assessment = _build_for("frontend-static-basic")
+    assert assessment.overall_status == AssessmentStatus.WARNING
+    assert assessment.application_health == AssessmentStatus.PASS
+
+
+def test_application_health_warning_when_functional_check_actually_fails():
+    results = [
+        TestResult(id="T-1", category="functional", status=ResultStatus.PASSED, message=""),
+        TestResult(id="T-2", category="functional", status=ResultStatus.FAILED, message=""),
+    ]
+    assessment = _build_for(
+        "healthy-project", target="http://localhost:8000",
+        run_result=RunResult(results=results), generated_count=2, functional_not_run_reason=None,
+    )
+    assert assessment.application_health == AssessmentStatus.WARNING
+
+
+def test_application_health_pass_when_nothing_executed_at_all():
+    assessment = _build_for("healthy-project")
+    functional = next(c for c in assessment.categories if c.name == "Functional Health")
+    performance = next(c for c in assessment.categories if c.name == "Performance")
+    assert functional.status == AssessmentStatus.NOT_ASSESSED
+    assert performance.status == AssessmentStatus.NOT_ASSESSED
+    assert assessment.application_health == AssessmentStatus.PASS
+
+
+def test_assessment_completeness_partial_when_unassessed_areas_exist():
+    assessment = _build_for("healthy-project")
+    assert assessment.unassessed  # always has at least "Business logic correctness"
+    assert assessment.assessment_completeness == "partial"

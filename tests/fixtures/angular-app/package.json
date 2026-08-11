@@ -1,0 +1,19 @@
+{
+  "name": "angular-app-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "build": "ng build",
+    "test": "ng test",
+    "e2e": "ng e2e"
+  },
+  "dependencies": {
+    "@angular/core": "^17.0.0",
+    "@angular/router": "^17.0.0",
+    "@angular/common": "^17.0.0"
+  },
+  "devDependencies": {
+    "@angular/cli": "^17.0.0",
+    "jasmine-core": "^5.1.0",
+    "karma": "^6.4.0"
+  }
+}

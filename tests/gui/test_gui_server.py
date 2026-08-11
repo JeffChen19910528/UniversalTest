@@ -84,8 +84,21 @@ def test_i18n_translates_backend_category_names_to_traditional_chinese(running_s
     for category in [
         "Project Discovery", "Build / Project Health", "Testability", "Functional Health",
         "Performance", "Configuration Hygiene", "Test Infrastructure", "Database Health",
+        "Frontend / Web Application Health",
     ]:
         assert f'category_{category}' in js, f"missing zh-TW category mapping for {category!r}"
+
+
+def test_i18n_has_assessment_summary_and_classification_keys(running_server):
+    _, body = _get(running_server, "/static/i18n.js")
+    js = body.decode("utf-8")
+    for key in [
+        "assessment_summary_title", "application_health_label", "application_health_hint",
+        "testability_label", "assessment_coverage_label", "quality_gate_clarify_pass",
+        "quality_gate_clarify_fail", "classification_defect", "classification_testability_gap",
+        "classification_not_assessed", "classification_informational", "classification_execution_failure",
+    ]:
+        assert key in js, f"missing i18n key: {key!r}"
 
 
 def test_static_path_traversal_is_rejected(running_server):

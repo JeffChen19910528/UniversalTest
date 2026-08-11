@@ -1705,3 +1705,456 @@ None planned — this was a stabilization pass, not a new phase. Any further
 work (Browser Automation, AI, Security Scanner, Blockchain, GraphQL,
 gRPC, Distributed Testing) requires an explicit go-ahead per `skill.md`
 and is out of scope here.
+
+## Phase 8.5 — Frontend / Web Application Analysis Adapter — ✅ Done (2026-08-11)
+
+Extends Universal Test to discover and assess frontend/web-application
+projects. **Discovery + testability assessment only** — no browser/UI
+execution; that remains the separate, unimplemented Phase 9 Browser
+Adapter. See `docs/FRONTEND_ANALYSIS.md` for the full design and
+`ARCHITECTURE.md` §16 for the technical detail.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **605 passed, 0 failed, 0 skipped, 0 errors** (109.76s) —
+matched the last-recorded number in this file exactly, confirming it was
+still current.
+
+### Files changed
+
+- `src/universal_test/discovery/framework.py` — Next.js/Nuxt/Svelte/
+  SvelteKit/Solid/Astro detection (dependency or config-file evidence),
+  same pattern as the existing React/Angular/Vue entries.
+- `src/universal_test/discovery/project_type.py` — Vite/Webpack/Rollup/
+  Turbopack/Angular CLI bundler detection in `detect_build_systems`
+  (distinct from the pre-existing npm/yarn/pnpm entries); the `"frontend"`
+  `ProjectTypeDetection` now also accepts config-file evidence, not only a
+  dependency-name hit, and its package-hint/config-marker constants moved
+  to `discovery/frontend.py` as the single source of truth (imported back
+  here to avoid duplication).
+- `src/universal_test/discovery/test_framework.py` — Playwright, Cypress,
+  Testing Library, WebdriverIO, Puppeteer, Karma, Jasmine detection.
+- `src/universal_test/discovery/language.py` — added CSS/SCSS extensions
+  (JSX/TSX were already covered under JavaScript/TypeScript).
+- `src/universal_test/discovery/models.py` — new `FrontendSignal` /
+  `FrontendInfo` dataclasses; `ProjectModel.frontend` field +
+  `to_dict()` wiring.
+- `src/universal_test/discovery/frontend.py` — new; `detect_frontend()`,
+  bounded route/component/form/API-client signal scanning (capped at 300
+  files, always labeled with its scan bound), build/test npm script
+  extraction (never executed), frontend test-directory detection,
+  `.env.example`/`.env.template` key-name-only extraction. No
+  `subprocess`/`socket` usage anywhere in this module.
+- `src/universal_test/discovery/engine.py` — wired `detect_frontend` into
+  the existing detector step loop (same failure-isolation as every other
+  step).
+- `src/universal_test/adapters/frontend/adapter.py` — new; `FrontendAdapter`
+  implementing the `detect/describe/discover/generate_tests/execute/
+  collect_metrics` contract. `execute()` raises an explicit
+  `NotImplementedError`; `generate_tests()` returns `[]`.
+- `src/universal_test/adapters/__init__.py` — docstring updated to list
+  `frontend` as implemented.
+- `src/universal_test/assessment/frontend_assessment.py` — new; "Frontend
+  / Web Application Health" category, capped below `FAIL`.
+- `src/universal_test/assessment/engine.py` — added the new category to
+  `build_assessment`'s category list (no new parameter needed — it only
+  reads `model.frontend`); `_compute_coverage`/`_compute_unassessed` gained
+  "Frontend Discovery" / "Browser/UI Execution" entries.
+- `src/universal_test/discovery/serializers.py` — Frontend section in
+  `to_text`/`to_markdown` (`to_json` needed no change — `model.to_dict()`
+  already includes `frontend`).
+- `src/universal_test/reporting/markdown_report.py`,
+  `src/universal_test/reporting/html_report.py` — "Frontend / Web
+  Application" section with an explicit "Browser/UI Execution:
+  NOT_ASSESSED" line (`reporting/json_report.py` needed no change for the
+  same reason as the scan JSON serializer above).
+- `src/universal_test/gui/static/{app.js,i18n.js}` — Traditional Chinese/
+  English category label; the frontend category card additionally shows
+  the Browser/UI-not-assessed note directly (not just buried in the
+  Unassessed list). `gui/server.py` needed no change — findings/category
+  evidence already flow through the existing generic `_outcome_to_dict()`.
+- 9 new fixtures under `tests/fixtures/`: `react-vite-vitest`, `vue-app`,
+  `angular-app`, `nextjs-app`, `sveltekit-app`, `frontend-no-tests`,
+  `frontend-malformed-package-json`, `frontend-empty-dir`,
+  `frontend-malicious-scripts`, `backend-mentions-react`.
+- New tests: `tests/discovery/test_frontend.py`,
+  `tests/discovery/test_frontend_safety.py`,
+  `tests/adapters/frontend/{conftest,test_adapter}.py`,
+  `tests/assessment/test_frontend_assessment.py`; extended
+  `tests/assessment/test_engine.py` (category/coverage set assertions +
+  a frontend-detected case), `tests/reporting/test_report_renderers.py`
+  (frontend section + env-value-non-leak assertions),
+  `tests/gui/test_gui_server.py` (i18n category-label coverage).
+- `ARCHITECTURE.md` §16 (new), `SPECIFICATION.md` §4.12 (new),
+  `ROADMAP.md` (Phase 8.5 row + updated stop point), `README.md`,
+  `README.zh-TW.md`, `CHANGELOG.md` `[Unreleased]`,
+  `docs/FRONTEND_ANALYSIS.md` (new).
+
+### Tests executed
+
+`pytest -q` before: 605 passed. After: **634 passed, 0 failed, 0 skipped,
+0 errors** (108.72s) — a net increase of 29, all new frontend-specific
+coverage (discovery, safety, adapter, assessment, reporting, GUI i18n);
+no existing test was weakened, skipped, or deleted. Two existing exact-set
+assertions (`test_eight_categories_present` →
+`test_nine_categories_present`, `test_coverage_has_five_items` →
+`test_coverage_has_six_items`) were extended to include the new category/
+coverage item, not loosened.
+
+Manual verification: `universal-test scan tests/fixtures/react-vite-vitest`
+and `universal-test assess tests/fixtures/react-vite-vitest --output
+<dir>` both run end-to-end; all three report formats (JSON/Markdown/HTML)
+show the Frontend section and the "Browser/UI Execution: NOT_ASSESSED"
+marker; `universal-test scan tests/fixtures/frontend-malicious-scripts`
+confirms the malicious `"prepare"`/`"postinstall"` script commands never
+even appear in output (they're outside the build/test script name
+allowlist) and are never executed — backed by
+`tests/discovery/test_frontend_safety.py`, which fails the test suite if
+discovery ever touches `subprocess`/`socket`.
+
+### Definition of Done
+
+- [x] Existing test suite baseline verified (605 passed, confirmed current)
+- [x] Frontend/framework/language/build-system/test-framework detection
+- [x] Routing/component/form/API-client evidence detection (bounded)
+- [x] Frontend testability assessment (capped below `FAIL`)
+- [x] GUI/CLI/JSON/Markdown/HTML all show frontend information
+- [x] No secret/env-value leakage
+- [x] No project scripts executed during discovery (test-enforced)
+- [x] No network traffic during discovery (test-enforced)
+- [x] False-positive tests (backend project mentioning "React" in prose)
+- [x] Fixture projects for every major framework + edge cases
+- [x] Existing tests still pass; new tests pass
+- [x] Documentation updated (7 files + 1 new doc)
+- [x] Browser execution explicitly remains `NOT_ASSESSED` everywhere
+
+### Known limitations
+
+- Route/component/form/API-client evidence is a bounded, literal-substring
+  heuristic (no AST parsing), capped at 300 scanned files per project —
+  documented as a lower bound, not exhaustive coverage, in every evidence
+  `note` field and in `docs/FRONTEND_ANALYSIS.md`.
+- GUI visual rendering was verified via the automated HTTP-level test
+  suite (i18n key coverage, category-card generic rendering) — not by
+  looking at a rendered page in a browser, since no interactive browser
+  was available in this environment. Should be spot-checked before
+  release.
+
+### Next phase
+
+None planned — Phase 9 (actual Browser Adapter: Playwright execution, page
+navigation, form interaction, screenshots) requires its own explicit
+go-ahead per `skill.md` §32/ROADMAP.md's stop points, same as every prior
+phase boundary in this project.
+
+## Static Web Analysis Enhancement (extends Phase 8.5) — ✅ Done (2026-08-12)
+
+Correction/enhancement to Phase 8.5: plain static HTML/CSS/JavaScript
+websites are now a first-class frontend type, not something only
+manifest/config-driven frameworks got. Still discovery + testability
+assessment only — no browser/UI execution. See `docs/FRONTEND_ANALYSIS.md`
+and `ARCHITECTURE.md` §16.7.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **634 passed, 0 failed, 0 skipped, 0 errors** (108.58s) —
+the end state of Phase 8.5 earlier in this session, confirmed current.
+
+### Files changed
+
+- `src/universal_test/discovery/filesystem.py` — added `coverage`/
+  `htmlcov` to `EXCLUDED_DIR_NAMES` (generated report output, never
+  authored source — same treatment as `node_modules`/`dist`/`build`).
+- `src/universal_test/discovery/models.py` — new `FrontendType` enum
+  (`STATIC_WEB`/`FRAMEWORK_WEB`/`FULL_STACK_WEB`/`UNKNOWN_WEB`);
+  `FrontendInfo` gained `frontend_type`, `entry_points`, `web_roots`,
+  `html_page_count`/`css_file_count`/`js_file_count`, `css_frameworks`,
+  and two more `FrontendSignal`s (`responsive`, `auth_ui`) — reusing the
+  existing `FrontendSignal` shape rather than inventing new per-concept
+  classes.
+- `src/universal_test/discovery/frontend.py` — new `_detect_static_web`
+  (entry-point/web-root detection with the docs/templates/coverage
+  false-positive guard), `_detect_css_frameworks` (filename/link evidence
+  only, never arbitrary class names), responsive/auth-UI marker scanning,
+  `<a href=`/`WebSocket(` added to the existing route/API-client marker
+  lists, HTML/CSS/JS file counting. `detect_frontend` now accepts
+  `model.frameworks` and gives framework/config evidence explicit
+  precedence over a static-HTML guess before computing `frontend_type`.
+- `src/universal_test/discovery/engine.py` — the `"frontend"` step now
+  passes `model.frameworks` (already populated earlier in the same step
+  loop) into `detect_frontend`.
+- `src/universal_test/adapters/frontend/adapter.py` — its standalone
+  `discover()` now runs framework detection first for the same
+  precedence guarantee when used outside the full discovery engine.
+- `src/universal_test/assessment/frontend_assessment.py` — summary text
+  branches on `frontend_type` (Static/Unknown Web reports HTML/CSS/JS
+  counts; Framework/Full-stack Web keeps the original framework/language/
+  build summary); the `PASS`/`WARNING`/`NOT_ASSESSED`-only status cap is
+  unchanged and applies identically to static sites.
+- `src/universal_test/discovery/serializers.py`,
+  `src/universal_test/reporting/{markdown_report,html_report}.py` — added
+  type/entry-point/web-roots/HTML-CSS-JS-count/CSS-framework/responsive/
+  auth-UI display (`reporting/json_report.py` needed no change, same
+  reason as Phase 8.5: `ProjectModel.to_dict()` already includes
+  `frontend` whole). The GUI needed **no** code change — its category
+  card already renders `category.summary` generically, so the new
+  static-web summary text appears automatically.
+- 8 new fixtures under `tests/fixtures/`: `frontend-static-basic`,
+  `frontend-static-form`, `frontend-static-api`, `frontend-single-html`,
+  `frontend-docs-only`, `frontend-coverage-only`, `backend-html-template`,
+  `frontend-static-malicious-inline-script`.
+- New `tests/discovery/test_static_web.py` (DoD coverage: single-page,
+  multi-page, monorepo multiple-web-roots, weak/ambiguous evidence,
+  docs/coverage/backend-template false positives, CSS framework
+  filename-vs-class-name distinction); extended
+  `tests/discovery/test_frontend_safety.py` (inline `<script>` never
+  executed), `tests/assessment/test_frontend_assessment.py` (static/
+  full-stack summary text, docs-only still `NOT_ASSESSED`),
+  `tests/reporting/test_report_renderers.py` (type/counts appear in all
+  three report formats).
+- `ARCHITECTURE.md` §16.7 (new), `SPECIFICATION.md` §4.12 addendum,
+  `README.md`, `README.zh-TW.md`, `CHANGELOG.md` `[Unreleased]`,
+  `docs/FRONTEND_ANALYSIS.md` (new "Frontend classification" section).
+
+### Tests executed
+
+`pytest -q` before: 634 passed. After: **654 passed, 0 failed, 0 skipped,
+0 errors** (108.45s) — a net increase of 20, all new static-web coverage;
+no existing test was weakened or deleted, and the Phase 8.5 framework
+fixtures (React/Vue/Angular/Next.js/SvelteKit/mixed-project) were verified
+to still classify as `FRAMEWORK_WEB`/`FULL_STACK_WEB` (never `STATIC_WEB`)
+— confirming the precedence rule holds.
+
+Manual verification: `universal-test scan tests/fixtures/frontend-static-basic`
+and `universal-test assess tests/fixtures/frontend-static-basic --output
+<dir>` both run end-to-end; all three report formats show
+`frontend_type: static_web`, the HTML/CSS/JS counts, and the entry point.
+
+### Definition of Done
+
+- [x] Single `index.html` detected (`frontend-single-html`)
+- [x] Multi-page static website detected (`frontend-static-basic`)
+- [x] HTML/CSS/JS evidence collected (exact counts + bounded content scan)
+- [x] Form evidence collected (`frontend-static-form`)
+- [x] API interaction evidence collected, including WebSocket (`frontend-static-api`)
+- [x] Responsive evidence collected (`<meta viewport>`/`@media`)
+- [x] Entry-point evidence collected, including "multiple web roots" for monorepos
+- [x] `FrontendType` is a first-class classification
+- [x] Framework projects continue to work (precedence verified)
+- [x] Backend templates not falsely classified (`backend-html-template`)
+- [x] Documentation/coverage HTML not falsely classified
+  (`frontend-docs-only` weak-evidence guard; `frontend-coverage-only`
+  excluded at the filesystem-walk level)
+- [x] GUI/CLI/JSON/Markdown/HTML all display Static Web
+- [x] No JavaScript/HTML executed (dedicated inline-`<script>` test)
+- [x] No npm scripts executed (existing safety test extended)
+- [x] No network traffic (existing safety test's socket monkeypatch)
+- [x] No secrets exposed (unchanged env-key-only extraction)
+- [x] Large/excluded directories remain bounded (`coverage`/`htmlcov` added)
+- [x] Existing tests remain passing; new static-web tests pass
+- [x] Documentation updated
+
+### Known limitations
+
+- The docs/templates/coverage false-positive guard is itself a heuristic:
+  a legitimate static site kept in a `docs/` directory (a common GitHub
+  Pages convention) with no accompanying CSS/JS and only one page will
+  not be detected until it has a second page or a CSS/JS file next to it.
+- Static-site link/route evidence cannot see JavaScript-generated
+  navigation (`<a href>` written at runtime is invisible to a static text
+  scan) — reported as "evidence detected," never "the complete site map."
+- CSS framework detection is filename/link-based only; a framework loaded
+  through an unusual bundling/proxy path with no recognizable filename
+  will not be detected — this is a deliberate false-positive-avoidance
+  trade-off (brief §8 explicitly forbids inferring from class names alone).
+
+### Next phase
+
+None planned — same stop point as Phase 8.5: Browser Adapter execution,
+visual regression, AI test generation, security scanning, GraphQL/gRPC
+remain out of scope without explicit go-ahead.
+
+## Static Web Capability Detection & Assessment Semantics Hardening (extends Phase 8.5) — ✅ Done (2026-08-12)
+
+Real-world validation against a static-web project (essentially one
+`index.html` with substantial inline CSS/JS, microphone/speech-synthesis/
+localStorage usage) surfaced two gaps: rich single-file apps misreported
+as "CSS: 0, JavaScript: 0" (only external files were counted), and several
+testability-only `WARNING` categories had no way to be told apart from an
+actual application defect. This pass fixes both without touching
+`overall_status`, Quality Gate, regression, baseline, or CLI exit codes —
+entirely additive. See `docs/FRONTEND_ANALYSIS.md` and `ARCHITECTURE.md`
+§16.8.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **654 passed, 0 failed, 0 skipped, 0 errors** (108.74s) —
+the end state of the Static Web Analysis enhancement earlier in this
+session, confirmed current.
+
+### Files changed
+
+- `src/universal_test/core/models/enums.py` — new `FindingClassification`
+  enum (`DEFECT`/`TESTABILITY_GAP`/`NOT_ASSESSED`/`INFORMATIONAL`/
+  `EXECUTION_FAILURE`).
+- `src/universal_test/assessment/models.py` — `AssessmentFinding` gained
+  `classification` (default `INFORMATIONAL`, fully backward compatible —
+  all 12 existing call sites use keyword args); `ProjectAssessment` gained
+  `application_health` and `assessment_completeness`.
+- `src/universal_test/assessment/rules.py` — new
+  `compute_application_health()`: a category-name whitelist
+  (`Functional Health`/`Performance` only — the only two categories ever
+  driven by real execution) rather than a classification-based
+  aggregation; `overall_status`/`compute_overall_status` unchanged.
+- `src/universal_test/assessment/engine.py` — wires
+  `application_health`/`assessment_completeness` into `build_assessment`;
+  `assessment_completeness` derived purely from existing coverage/
+  unassessed data.
+- `src/universal_test/assessment/{functional,performance,discovery,
+  configuration,database,frontend}_assessment.py` — `classification` set
+  explicitly at all 12 finding-creation sites;
+  `discovery_assessment.py::assess_build_health` gained a `PASS` branch
+  for static-web projects with no build system;
+  `assess_test_infrastructure`'s `TESTINFRA-001` wording strengthened to
+  explicitly state "does not indicate the application has a defect."
+- `src/universal_test/discovery/frontend.py` — renamed `_detect_static_web`
+  to public `detect_static_web`; new `_count_inline_markup`,
+  `_detect_browser_apis`, `_detect_external_resources`, `_scan_auth_ui`
+  (tiered strong/weak), `_detect_application_pattern`; new marker constant
+  sets; `detect_frontend` wires all of the above into `FrontendInfo`.
+- `src/universal_test/discovery/project_type.py` — `detect_project_types`
+  now also calls `frontend.detect_static_web()` when the package.json-based
+  branch found nothing, so a pure static site gets a `"frontend"`
+  `ProjectTypeDetection` too.
+- `src/universal_test/discovery/models.py` — `FrontendInfo` gained
+  `inline_css_count`, `inline_js_count`, `interactive_ui`, `browser_apis`,
+  `application_pattern`, `external_resources`, `csp`.
+- `src/universal_test/discovery/serializers.py`,
+  `src/universal_test/reporting/{markdown_report,html_report,json_report}.py`
+  — new Frontend fields displayed; new "Assessment Summary" block
+  (Application Health/Testability/Assessment Coverage); classification
+  label per finding; Quality Gate clarifying sentence per pass/fail.
+  `json_report.py` needed one explicit addition this time (its
+  `assessment` sub-dict is hand-built, not `ProjectAssessment.to_dict()`
+  directly) — everything else stayed additive-only as in prior passes.
+- `src/universal_test/cli/main.py` — `assess` console output gained an
+  "Application Health" line.
+- `src/universal_test/gui/static/{index.html,app.js,i18n.js}` — new
+  "Assessment Summary" card, classification badge per finding, Quality
+  Gate clarifying sentence, zh-TW/en i18n keys. `gui/server.py` needed
+  **no** change (`_outcome_to_dict` already forwards
+  `assessment.to_dict()` whole).
+- New fixture `frontend-static-rich-spa` (modeled on the real-world
+  report: inline CSS/JS, browser APIs, interactive UI, CSP, external
+  Google Fonts link).
+- New/extended tests: `tests/discovery/test_static_web.py` (capability
+  detection + auth-UI hardening false positives),
+  `tests/discovery/test_frontend_safety.py` (new fixture added to the
+  no-execution loop), `tests/assessment/test_engine.py`
+  (`application_health`/`assessment_completeness` cases),
+  `tests/assessment/test_discovery_assessment.py` (static-web Build
+  Health/Project Discovery fixes, `TESTINFRA-001` classification),
+  `tests/assessment/{test_functional,test_performance,
+  test_configuration,test_database,test_frontend}_assessment.py`
+  (classification assertions per finding), `tests/reporting/
+  test_report_renderers.py` (Assessment Summary + new Frontend fields in
+  all three formats), `tests/gui/test_gui_server.py` (new i18n key
+  coverage).
+- `ARCHITECTURE.md` §16.8 (new), `SPECIFICATION.md` §4.13 (new),
+  `README.md` (new "Understanding report status" section + Frontend
+  bullet extended), `README.zh-TW.md` (mirrored), `CHANGELOG.md`
+  `[Unreleased]`, `docs/FRONTEND_ANALYSIS.md` (two new sections).
+
+### Tests executed
+
+`pytest -q` before: 654 passed. After: **677 passed, 0 failed, 0 skipped,
+0 errors** (109.27s) — a net increase of 23, all new coverage; no existing
+test was weakened, skipped, or deleted. `tests/quality_gate` (106 tests
+combined with `tests/regression`) reran clean, confirming Quality Gate/
+regression logic is byte-for-byte unchanged.
+
+Manual verification table (per the brief's required format):
+
+| Project | Frontend Type | Application Health | Testability | Browser Testing |
+|---|---|---|---|---|
+| SpeakFlow-like (`frontend-static-rich-spa`) | `static_web` | PASS | UNKNOWN | NOT_ASSESSED |
+| Simple static HTML (`frontend-static-basic`) | `static_web` | PASS | UNKNOWN | NOT_ASSESSED |
+| Framework frontend (`react-vite-vitest`) | `framework_web` | PASS | PASS | NOT_ASSESSED |
+| Backend w/ HTML templates (`backend-html-template`) | none | PASS | UNKNOWN | n/a (no frontend) |
+| No frontend (`backend-mentions-react`) | none | PASS | UNKNOWN | n/a (no frontend) |
+
+For the SpeakFlow-like fixture specifically: `Frontend / Web Application
+Health` category is `WARNING` (no test framework detected) while
+`Application Health` correctly reads `PASS` — the exact distinction this
+pass exists to make. Verified in JSON (`application_health: "pass"`,
+`assessment_completeness: "partial"`, finding `classification:
+"testability_gap"`), Markdown/HTML ("Assessment Summary" section present
+in both), and the CLI console (`Application Health: PASS (no confirmed
+defect found)` printed alongside the unchanged `Overall Status: WARNING`
+line). `inline_css_count`/`inline_js_count` both read `1` (previously
+would have read `css_file_count`/`js_file_count` = `0`); `browser_apis`
+correctly lists `MediaRecorder`, `Microphone (getUserMedia)`, `Speech
+synthesis`, `Local storage`.
+
+**What `WARNING` means for each relevant finding in this run:**
+- `FRONTEND-NO-TEST` (Frontend / Web Application Health, WARNING) →
+  `testability_gap` — a testability limitation, not a confirmed defect.
+- `TESTINFRA-001` (Test Infrastructure, WARNING, when triggered) →
+  `testability_gap` — same distinction, explicit in its description text.
+- `FUNC-FAILED`/`PERF-*` threshold breaches (when triggered) → `defect` —
+  these *do* represent a confirmed defect signal and correctly drag
+  `application_health` to `WARNING`.
+- `FUNC-ERROR` (when triggered) → `execution_failure` — connectivity, not
+  a behavioral defect.
+- `CFG-SECRET-*`/`DB-NO-PK`/`DB-NO-FK`/`DB-WARN` (when triggered) →
+  `informational`/`not_assessed` — unconfirmed or incomplete, never
+  treated as proof of a defect.
+
+### Definition of Done
+
+- [x] Static Web remains correctly detected (no regression)
+- [x] Inline CSS detected
+- [x] Inline JavaScript detected
+- [x] Interactive UI evidence detected
+- [x] Browser API evidence detected
+- [x] Application pattern evidence detected
+- [x] External resources detected safely (never fetched)
+- [x] CSP evidence detected safely
+- [x] Authentication UI false positives reduced (tiered strong/weak,
+  README-prose-mention test added)
+- [x] API clients and browser APIs remain structurally separate
+- [x] Static websites without build systems not treated as defective
+- [x] Missing test frameworks clearly classified as testability limitations
+- [x] `NOT_ASSESSED` clearly distinguished from `FAIL` (unchanged)
+- [x] GUI/CLI/reports no longer make `WARNING` look like application failure
+- [x] Quality Gate remains policy-driven (untouched)
+- [x] No false `PASS` introduced (all additive, `overall_status` unchanged)
+- [x] No numeric quality score introduced
+- [x] No secrets exposed
+- [x] No JavaScript executed during discovery (dedicated test)
+- [x] No project scripts executed
+- [x] No external network access
+- [x] Existing tests remain passing; new regression tests pass
+- [x] Documentation updated
+
+### Known limitations
+
+- `assessment_completeness` is, in practice, always `"partial"` today,
+  since `_compute_unassessed` unconditionally includes "Business logic
+  correctness" — an honest reflection that this tool can never fully
+  assess that dimension, not a bug worth "fixing" by excluding it.
+- `application_health`'s category whitelist (`Functional Health`,
+  `Performance`) is deliberately static, not derived from
+  `AssessmentFinding.classification` — correct given every other
+  category's current architecture, but a future category that *can*
+  reach `FAIL` through real execution would need to be added to the
+  whitelist explicitly (documented in `rules.py`'s docstring).
+- GUI visual rendering was verified via `node --check` (syntax) and the
+  automated HTTP-level/i18n-key test suite, not a live browser screenshot
+  (no interactive browser session available in this environment).
+
+### Next phase
+
+None planned — same stop point as before: Browser Adapter execution,
+visual regression, AI test generation, security scanning, GraphQL/gRPC
+remain out of scope without explicit go-ahead.

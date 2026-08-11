@@ -6,11 +6,10 @@ from universal_test.core.models.enums import DetectionConfidence
 from universal_test.core.models.evidence import Evidence
 from universal_test.discovery.filesystem import ScannedFile
 from universal_test.discovery.manifests import ManifestBundle
+from universal_test.discovery import frontend as _frontend
+from universal_test.discovery.frontend import FRONTEND_CONFIG_MARKERS as _FRONTEND_CONFIG_MARKERS
+from universal_test.discovery.frontend import FRONTEND_PACKAGE_HINTS as _FRONTEND_PACKAGE_HINTS
 from universal_test.discovery.models import BuildSystemDetection, ProjectTypeDetection
-
-_FRONTEND_PACKAGE_HINTS = {
-    "react", "react-dom", "vue", "@angular/core", "svelte", "next", "nuxt", "vite",
-}
 
 
 def detect_project_types(files: list[ScannedFile], manifests: ManifestBundle) -> list[ProjectTypeDetection]:
@@ -34,10 +33,35 @@ def detect_project_types(files: list[ScannedFile], manifests: ManifestBundle) ->
         ))
         deps = set(manifests.package_json.get("dependencies", {}) or {})
         deps |= set(manifests.package_json.get("devDependencies", {}) or {})
-        if deps & _FRONTEND_PACKAGE_HINTS:
+        matched_deps = deps & _FRONTEND_PACKAGE_HINTS
+        matched_config = manifests.by_name(*_FRONTEND_CONFIG_MARKERS)
+        if matched_deps or matched_config:
+            evidence = []
+            if matched_deps:
+                evidence.append(Evidence("dependency", {"matched": sorted(matched_deps)}))
+            if matched_config:
+                evidence.append(Evidence("config_file", {"matched": sorted(f.relative for f in matched_config)}))
+            detections.append(ProjectTypeDetection(
+                name="frontend", confidence=DetectionConfidence.DETECTED, evidence=evidence,
+            ))
+    else:
+        matched_config = manifests.by_name(*_FRONTEND_CONFIG_MARKERS)
+        if matched_config:
             detections.append(ProjectTypeDetection(
                 name="frontend", confidence=DetectionConfidence.DETECTED,
-                evidence=[Evidence("dependency", {"matched": sorted(deps & _FRONTEND_PACKAGE_HINTS)})],
+                evidence=[Evidence("config_file", {"matched": sorted(f.relative for f in matched_config)})],
+            ))
+
+    # A plain static HTML/CSS/JS website has neither a package.json nor a
+    # framework config file, so the branches above never fire for it - a
+    # pure static site still deserves a "frontend" project-type signal
+    # (Static Web Analysis brief §8: don't leave a valid static website
+    # showing "0 languages, generic project").
+    if not any(d.name == "frontend" for d in detections):
+        static = _frontend.detect_static_web(files)
+        if static.detected:
+            detections.append(ProjectTypeDetection(
+                name="frontend", confidence=static.confidence, evidence=static.evidence,
             ))
 
     if manifests.by_suffix(".csproj", ".sln"):
@@ -95,7 +119,10 @@ def detect_build_systems(files: list[ScannedFile], manifests: ManifestBundle) ->
                                                  [Evidence("manifest_file", {"file": "requirements.txt/pyproject.toml"})]))
 
     if manifests.package_json is not None:
-        if manifests.by_name("pnpm-lock.yaml"):
+        if manifests.by_name("bun.lockb", "bun.lock"):
+            detections.append(BuildSystemDetection("bun", DetectionConfidence.DETECTED,
+                                                     [Evidence("lockfile", {"file": "bun.lockb/bun.lock"})]))
+        elif manifests.by_name("pnpm-lock.yaml"):
             detections.append(BuildSystemDetection("pnpm", DetectionConfidence.DETECTED,
                                                      [Evidence("lockfile", {"file": "pnpm-lock.yaml"})]))
         elif manifests.by_name("yarn.lock"):
@@ -104,6 +131,26 @@ def detect_build_systems(files: list[ScannedFile], manifests: ManifestBundle) ->
         else:
             detections.append(BuildSystemDetection("npm", DetectionConfidence.INFERRED,
                                                      [Evidence("manifest_file", {"file": "package.json"})]))
+
+        npm_deps = set(manifests.package_json.get("dependencies", {}) or {})
+        npm_deps |= set(manifests.package_json.get("devDependencies", {}) or {})
+        for bundler, dep_names, config_names in (
+            ("Vite", ("vite",), ("vite.config.js", "vite.config.ts", "vite.config.mjs")),
+            ("Webpack", ("webpack",), ("webpack.config.js", "webpack.config.ts")),
+            ("Rollup", ("rollup",), ("rollup.config.js", "rollup.config.ts")),
+            ("Turbopack", (), ("turbo.json",)),
+            ("Angular CLI", ("@angular/cli",), ("angular.json",)),
+        ):
+            matched_deps = npm_deps & set(dep_names)
+            matched_config = manifests.by_name(*config_names)
+            if not matched_deps and not matched_config:
+                continue
+            evidence = []
+            if matched_deps:
+                evidence.append(Evidence("dependency", {"source": "package.json", "matched": sorted(matched_deps)}))
+            if matched_config:
+                evidence.append(Evidence("config_file", {"matched": sorted(f.relative for f in matched_config)}))
+            detections.append(BuildSystemDetection(bundler, DetectionConfidence.DETECTED, evidence))
 
     if manifests.by_suffix(".csproj", ".sln"):
         detections.append(BuildSystemDetection("dotnet sdk", DetectionConfidence.DETECTED,

@@ -36,6 +36,14 @@ def _python_framework(name: str, deps: set[str], *package_names: str) -> Framewo
     )
 
 
+_FRONTEND_FRAMEWORK_CONFIG_MARKERS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("Next.js", ("next.config.js", "next.config.ts", "next.config.mjs")),
+    ("Nuxt", ("nuxt.config.js", "nuxt.config.ts")),
+    ("SvelteKit", ("svelte.config.js", "svelte.config.ts")),
+    ("Astro", ("astro.config.js", "astro.config.ts", "astro.config.mjs")),
+)
+
+
 def detect_frameworks(files: list[ScannedFile], manifests: ManifestBundle) -> list[FrameworkDetection]:
     detections: list[FrameworkDetection] = []
 
@@ -45,12 +53,34 @@ def detect_frameworks(files: list[ScannedFile], manifests: ManifestBundle) -> li
         ("Angular", ("@angular/core",)),
         ("Vue", ("vue",)),
         ("Express", ("express",)),
+        ("Next.js", ("next",)),
+        ("Nuxt", ("nuxt",)),
+        ("Svelte", ("svelte",)),
+        ("SvelteKit", ("@sveltejs/kit",)),
+        ("Solid", ("solid-js",)),
+        ("Astro", ("astro",)),
     ]:
         result = _npm_framework(framework, npm_deps, *packages)
         if result:
             detections.append(result)
 
-    has_frontend_framework = any(d.name in ("React", "Angular", "Vue") for d in detections)
+    # Meta-framework config files are strong evidence even without (or in
+    # addition to) the dependency signal above — e.g. a workspace where the
+    # dependency lives in a hoisted root package.json.
+    for framework, marker_names in _FRONTEND_FRAMEWORK_CONFIG_MARKERS:
+        if any(d.name == framework for d in detections):
+            continue
+        matched = manifests.by_name(*marker_names)
+        if matched:
+            detections.append(FrameworkDetection(
+                name=framework, confidence=DetectionConfidence.DETECTED,
+                evidence=[Evidence("marker_file", {"file": matched[0].relative})],
+            ))
+
+    has_frontend_framework = any(
+        d.name in ("React", "Angular", "Vue", "Next.js", "Nuxt", "Svelte", "SvelteKit", "Solid", "Astro")
+        for d in detections
+    )
     has_node_backend_hint = bool(npm_deps & {"express", "fastify", "koa"}) or _looks_like_node_service(manifests)
     if manifests.package_json is not None and has_node_backend_hint and not has_frontend_framework:
         # Generic "Node.js" backend service evidence only when there's no frontend

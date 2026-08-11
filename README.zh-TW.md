@@ -307,6 +307,15 @@ database:
 
 每份報告都包含：整體狀態、附帶證據的逐分類發現項目、覆蓋率、明確的 Unknown/Not-Assessed 章節、回歸比較章節（當有提供 `--baseline` 時）、品質關卡章節，以及明確說明本次評估「未能證明」哪些事項的限制聲明。任何密碼、token、API 金鑰、cookie、Authorization 標頭或連線字串憑證，絕不會出現在任何報告、日誌或例外訊息中——這是由專門的遮罩（redaction）機制強制保證，並在測試套件中針對真實的 HTTP 回應驗證過。
 
+### 如何解讀報告狀態
+
+`PASS`／`WARNING`／`FAIL`／`UNKNOWN`／`NOT_ASSESSED` 各自回答不同的問題，絕不會被混為一談：
+
+- **`WARNING` 不代表「壞掉了」。** 它可能只是代表可測試性上的限制（例如沒有偵測到自動化測試框架）或評估不完整，不必然代表應用程式本身有缺陷。每一項發現都會額外標示 `classification`（`defect`／`testability_gap`／`not_assessed`／`informational`／`execution_failure`），讓你能分辨屬於哪一種。報告與 GUI 中都會另外顯示「應用程式健康度（Application Health）」，它只反映真正「執行過」的項目（功能／效能測試）——顯示綠色代表沒有發現確認的缺陷，即使其他分類因缺少測試工具而顯示 WARNING 也一樣。
+- **`NOT_ASSESSED` 既不是 `PASS` 也不是 `FAIL`。** 代表這次執行沒有進行該項評估（例如沒提供目標網址、沒啟用效能測試、沒設定資料庫連線設定），不代表成功或失敗。
+- **靜態分析只能偵測「能力」與「證據」，無法證明實際執行時的行為。** 偵測到某個瀏覽器 API、表單或互動元素，只代表程式碼中存在這段內容，不代表實際執行時一定正常運作——這正是為什麼「瀏覽器／UI 執行」在真正的瀏覽器測試模組出現之前，永遠會顯示為 `NOT_ASSESSED`。
+- **品質關卡 `PASS` 代表沒有任何已設定的關卡規則失敗**，不代表整個應用程式已被驗證正確；**`FAIL`** 代表有一項已設定的條件失敗，詳情列在其下方的發現項目中。
+
 ## 回歸比較
 
 使用方式請見上方的 `baseline` 指令說明。以下是將回歸比較結果轉換為 pass/warn/fail 判斷的品質關卡政策：
@@ -375,6 +384,7 @@ feature 分支  ---->  universal-test assess . --ci --yes --target <url> --basel
 ## 支援的技術
 
 - **探索（Discovery）**：12 種以上程式語言、常見框架（FastAPI、Django、Flask、Express、ASP.NET Core、Spring Boot、Laravel、React、Angular、Vue 等）、Docker／Compose／Kubernetes／GitHub Actions／GitLab CI／Jenkins／Azure Pipelines 證據、6 種資料庫、OpenAPI／Swagger／GraphQL／REST 路由證據、常見測試框架。
+- **前端／網頁應用程式分析**：React、Next.js、Vue、Nuxt、Angular、Svelte、SvelteKit、Solid、Astro；Vite／Webpack／Rollup／Turbopack／Angular CLI 建置工具；Jest／Vitest／Mocha／Karma／Jasmine／Testing Library 單元測試框架，以及 Playwright／Cypress／WebdriverIO／Puppeteer 瀏覽器自動化框架；有邊界的路由／元件／表單／API 呼叫證據掃描。**純靜態 HTML／CSS／JavaScript 網站也支援**——不需要 `package.json` 或任何建置工具——包含內嵌／外部 CSS／JS 數量、進入點偵測、導覽連結／表單／API 呼叫／響應式設計／登入介面等結構性證據，以及常見 CSS 框架偵測（Bootstrap／Tailwind／Bulma／Foundation），還有互動元件證據、瀏覽器 API 偵測（麥克風、語音合成、儲存空間、WebSocket 等）、應用程式型態推測（多頁靜態網站／單頁應用程式／靜態文件）、外部資源證據與 CSP 證據，讓單一檔案但內容豐富的網頁應用程式不會被誤判為「沒有 CSS／JS」。僅涵蓋探索與可測試性評估——**不包含**瀏覽器／UI 實際執行（詳見 [`docs/FRONTEND_ANALYSIS.md`](docs/FRONTEND_ANALYSIS.md)，目前為英文文件）。
 - **功能性／效能測試**：OpenAPI 3.x 規格的 REST API。
 - **資料庫評估**：SQL Server、PostgreSQL、MySQL、SQLite。
 - **CI**：任何能執行 shell 指令並檢查 exit code 的 CI 系統——GitHub Actions、GitLab CI 與 Jenkins 已提供現成範本。

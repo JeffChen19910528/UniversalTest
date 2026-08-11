@@ -1,4 +1,4 @@
-from universal_test.core.models.enums import AssessmentStatus, ResultStatus
+from universal_test.core.models.enums import AssessmentStatus, FindingClassification, ResultStatus
 from universal_test.core.models.result import TestResult
 from universal_test.core.orchestration.orchestrator import RunResult
 from universal_test.assessment.functional_assessment import assess_functional_health
@@ -26,7 +26,8 @@ def test_some_failed_is_warning_with_finding():
     run_result = RunResult(results=results)
     category = assess_functional_health(run_result, generated_count=4, not_run_reason=None)
     assert category.status == AssessmentStatus.WARNING
-    assert any(f.id == "FUNC-FAILED" for f in category.findings)
+    finding = next(f for f in category.findings if f.id == "FUNC-FAILED")
+    assert finding.classification == FindingClassification.DEFECT
 
 
 def test_all_errored_is_fail():
@@ -34,7 +35,8 @@ def test_all_errored_is_fail():
     run_result = RunResult(results=results)
     category = assess_functional_health(run_result, generated_count=4, not_run_reason=None)
     assert category.status == AssessmentStatus.FAIL
-    assert any(f.id == "FUNC-ERROR" for f in category.findings)
+    finding = next(f for f in category.findings if f.id == "FUNC-ERROR")
+    assert finding.classification == FindingClassification.EXECUTION_FAILURE
 
 
 def test_only_skipped_and_unknown_is_unknown():

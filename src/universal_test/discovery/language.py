@@ -32,6 +32,8 @@ _EXTENSION_LANGUAGE = {
     ".swift": "Swift",
     ".sol": "Solidity",
     ".sql": "SQL",
+    ".css": "CSS",
+    ".scss": "SCSS",
 }
 
 # manifest/marker evidence considered a strong, direct signal for a language

@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>SpeakFlow-like Rich Static App</title>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'">
+  <style>
+    body { font-family: sans-serif; margin: 0; }
+    .recorder { display: flex; gap: 1rem; }
+    @media (max-width: 600px) {
+      body { font-size: 14px; }
+    }
+  </style>
+</head>
+<body>
+  <main class="recorder">
+    <button id="record">Record</button>
+    <button onclick="speak()">Speak</button>
+    <input type="text" id="text-input" placeholder="Type something">
+    <select id="voice"><option>Default voice</option></select>
+  </main>
+
+  <script>
+    document.getElementById("record").addEventListener("click", async () => {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const recorder = new MediaRecorder(stream);
+      recorder.start();
+      localStorage.setItem("lastUsed", Date.now().toString());
+    });
+
+    function speak() {
+      const text = document.getElementById("text-input").value;
+      const utterance = new SpeechSynthesisUtterance(text);
+      speechSynthesis.speak(utterance);
+    }
+  </script>
+</body>
+</html>

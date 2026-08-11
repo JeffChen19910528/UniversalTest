@@ -20,10 +20,11 @@ from universal_test.assessment.discovery_assessment import (
     assess_project_discovery,
     assess_test_infrastructure,
 )
+from universal_test.assessment.frontend_assessment import assess_frontend_health
 from universal_test.assessment.functional_assessment import assess_functional_health
 from universal_test.assessment.models import SCHEMA_VERSION, CoverageItem, ProjectAssessment, UnassessedArea
 from universal_test.assessment.performance_assessment import assess_performance
-from universal_test.assessment.rules import compute_overall_status
+from universal_test.assessment.rules import compute_application_health, compute_overall_status
 from universal_test.assessment.testability_assessment import assess_testability
 
 LIMITATIONS = [
@@ -68,6 +69,13 @@ def _compute_coverage(
         items.append(CoverageItem(
             "Database", 0.0, reason="database credentials/access were not explicitly configured",
         ))
+
+    items.append(CoverageItem("Frontend Discovery", 100.0))
+    if model.frontend.detected:
+        items.append(CoverageItem(
+            "Browser/UI Execution", 0.0,
+            reason="browser automation adapter is not enabled in this version",
+        ))
     return items
 
 
@@ -94,6 +102,10 @@ def _compute_unassessed(
         areas.append(UnassessedArea("Functional correctness under load", "no execution target was provided"))
     if perf_result is None:
         areas.append(UnassessedArea("Performance", "performance execution was not enabled (pass --performance)"))
+    if model.frontend.detected:
+        areas.append(UnassessedArea(
+            "Browser/UI Execution", "Browser automation adapter is not enabled in this version.",
+        ))
     areas.append(UnassessedArea(
         "Business logic correctness", "no formal business specification is available to validate against",
     ))
@@ -123,11 +135,16 @@ def build_assessment(
         assess_database_health(database_result),
         assess_configuration_hygiene(model),
         assess_test_infrastructure(model),
+        assess_frontend_health(model),
     ]
 
     overall = compute_overall_status([c.status for c in categories])
+    application_health = compute_application_health(categories)
     coverage = _compute_coverage(model, generated_count, run_result, perf_result, database_result)
     unassessed = _compute_unassessed(model, run_result, perf_result, database_result)
+    assessment_completeness = (
+        "full" if not unassessed and all(c.percent == 100.0 for c in coverage) else "partial"
+    )
 
     recommendations = sorted({
         finding.recommendation for category in categories for finding in category.findings if finding.recommendation
@@ -140,6 +157,8 @@ def build_assessment(
         project_path=str(project_path),
         target=target,
         overall_status=overall,
+        application_health=application_health,
+        assessment_completeness=assessment_completeness,
         categories=categories,
         coverage=coverage,
         unassessed=unassessed,

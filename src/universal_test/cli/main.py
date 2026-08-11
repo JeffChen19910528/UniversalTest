@@ -644,6 +644,8 @@ def _run_assess(args: argparse.Namespace, config, logger) -> int:
         print(_ASSESS_RENDERERS[formats[0]](bundle))
 
     print(f"Overall Status: {assessment.overall_status.value.upper()}")
+    health_suffix = " (no confirmed defect found)" if assessment.application_health.value == "pass" else ""
+    print(f"Application Health: {assessment.application_health.value.upper()}{health_suffix}")
     if regression is not None:
         print(f"Regression Status: {regression.status.value.upper()}")
 

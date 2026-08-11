@@ -36,6 +36,7 @@ def test_no_primary_key_is_info_not_a_downgrade():
     no_pk_finding = next(f for f in category.findings if f.id == "DB-NO-PK")
     assert no_pk_finding.severity.value == "info"
     assert no_pk_finding.status == AssessmentStatus.PASS  # informational, not a defect
+    assert no_pk_finding.classification.value == "informational"
     assert category.status == AssessmentStatus.PASS  # doesn't drag the category down
 
 

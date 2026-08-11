@@ -11,7 +11,7 @@ defect (brief §13: "不要把「沒有 foreign key」直接判定成 database d
 
 from __future__ import annotations
 
-from universal_test.core.models.enums import AssessmentStatus, Severity
+from universal_test.core.models.enums import AssessmentStatus, FindingClassification, Severity
 from universal_test.core.models.evidence import Evidence
 from universal_test.adapters.database.adapter import DatabaseDiscoveryResult
 from universal_test.assessment.models import AssessmentCategory, AssessmentFinding
@@ -56,6 +56,7 @@ def assess_database_health(result: DatabaseDiscoveryResult | None) -> Assessment
                 + ", ".join(tables_without_pk[:20])
                 + (f" (+{len(tables_without_pk) - 20} more)" if len(tables_without_pk) > 20 else "")
             ),
+            classification=FindingClassification.INFORMATIONAL,
         ))
     if total_tables > 0 and total_fks == 0:
         findings.append(AssessmentFinding(
@@ -64,6 +65,7 @@ def assess_database_health(result: DatabaseDiscoveryResult | None) -> Assessment
             title="No foreign key relationships were detected",
             description="This is informational, not a defect finding - the schema may "
                         "legitimately enforce relationships at the application layer instead.",
+            classification=FindingClassification.INFORMATIONAL,
         ))
     if info.warnings:
         findings.append(AssessmentFinding(
@@ -71,6 +73,7 @@ def assess_database_health(result: DatabaseDiscoveryResult | None) -> Assessment
             severity=Severity.LOW, confidence=0.8,
             title="Some database metadata could not be fully discovered",
             description="; ".join(info.warnings),
+            classification=FindingClassification.NOT_ASSESSED,
         ))
 
     if total_tables == 0 and total_views == 0:

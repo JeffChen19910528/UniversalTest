@@ -51,6 +51,33 @@ def detect_test_frameworks(files: list[ScannedFile], manifests: ManifestBundle) 
             [Evidence("dependency_or_config", {"in_deps": "mocha" in npm_deps})],
         ))
 
+    for name, dep_names, config_names in (
+        ("Playwright", ("@playwright/test", "playwright"), ("playwright.config.js", "playwright.config.ts")),
+        ("Cypress", ("cypress",), ("cypress.config.js", "cypress.config.ts", "cypress.json")),
+        ("WebdriverIO", ("@wdio/cli",), ("wdio.conf.js", "wdio.conf.ts")),
+        ("Puppeteer", ("puppeteer",), ()),
+        ("Karma", ("karma",), ("karma.conf.js", "karma.conf.ts")),
+        ("Jasmine", ("jasmine", "jasmine-core"), ("jasmine.json",)),
+    ):
+        in_deps = bool(npm_deps & set(dep_names))
+        matched_config = manifests.by_name(*config_names) if config_names else []
+        if not in_deps and not matched_config:
+            continue
+        detections.append(TestFrameworkDetection(
+            name, DetectionConfidence.DETECTED,
+            [Evidence("dependency_or_config", {
+                "in_deps": in_deps,
+                "config_file": sorted(f.relative for f in matched_config) if matched_config else None,
+            })],
+        ))
+
+    testing_library_deps = {d for d in npm_deps if d.startswith("@testing-library/")}
+    if testing_library_deps:
+        detections.append(TestFrameworkDetection(
+            "Testing Library", DetectionConfidence.DETECTED,
+            [Evidence("dependency", {"source": "package.json", "matched": sorted(testing_library_deps)})],
+        ))
+
     for csproj_text, csproj_file in zip(manifests.csproj_texts, manifests.by_suffix(".csproj")):
         lowered = csproj_text.lower()
         for pkg, name in (("nunit", "NUnit"), ("xunit", "xUnit"), ("mstest.testframework", "MSTest")):

@@ -380,6 +380,34 @@ connection-string credential ever appears in any report, log, or
 exception — enforced by dedicated redaction and verified against real
 HTTP responses in the test suite.
 
+### Understanding report status
+
+`PASS`/`WARNING`/`FAIL`/`UNKNOWN`/`NOT_ASSESSED` answer different
+questions, and are never collapsed into one meaning:
+
+- **`WARNING` does not mean "broken."** It may indicate a testability
+  limitation (no automated test framework detected) or an incomplete
+  assessment, not necessarily an application defect. Every finding is
+  additionally labeled with a `classification`
+  (`defect`/`testability_gap`/`not_assessed`/`informational`/
+  `execution_failure`) so you can tell which one applies.
+  `Application Health` (shown separately from the overall status in every
+  report and the GUI) reflects only categories driven by something that
+  actually *executed* against your project (functional/performance
+  testing) — a `PASS` there means no confirmed defect was found, even if
+  other categories show `WARNING` for missing test tooling.
+- **`NOT_ASSESSED` is not `PASS` and not `FAIL`.** It means that capability
+  wasn't run this time (no target provided, performance not enabled, no
+  database profile configured) — not that it succeeded or failed.
+- **Static analysis detects capabilities and evidence; it cannot prove
+  runtime behavior.** A detected browser API, form, or interactive element
+  is evidence the code exists, not proof it works when actually run — that
+  distinction is why "Browser/UI Execution" is always reported separately
+  as `NOT_ASSESSED` until an actual Browser Adapter exists.
+- **Quality Gate `PASS` means no configured gate rule failed** — it does
+  not mean the entire application was verified correct; **`FAIL`** means a
+  configured condition failed, detailed in the findings below it.
+
 ## Regression
 
 See the `baseline` command above for usage. The Quality Gate policy that
@@ -490,6 +518,23 @@ as a build artifact unconditionally (pass or fail):
   Vue, and more), Docker/Compose/Kubernetes/GitHub Actions/GitLab CI/
   Jenkins/Azure Pipelines evidence, 6 databases, OpenAPI/Swagger/GraphQL/
   REST-routing evidence, common test frameworks.
+- **Frontend / web application analysis**: React, Next.js, Vue, Nuxt,
+  Angular, Svelte, SvelteKit, Solid, Astro; Vite/Webpack/Rollup/Turbopack/
+  Angular CLI build tools; Jest/Vitest/Mocha/Karma/Jasmine/Testing Library
+  unit-test frameworks and Playwright/Cypress/WebdriverIO/Puppeteer
+  browser-automation frameworks; bounded route/component/form/API-client
+  evidence. **Plain static HTML/CSS/JavaScript websites are supported too**
+  — no `package.json` or build tooling required — with HTML/CSS/JS counts,
+  entry-point detection, navigation/form/API-client/responsive/
+  authentication-UI structural evidence, and known CSS framework
+  detection (Bootstrap/Tailwind/Bulma/Foundation) — plus inline vs.
+  external CSS/JS counts, interactive UI evidence, browser API detection
+  (microphone, speech synthesis, storage, WebSocket, and more), likely
+  application pattern (static multi-page / single-page app / static
+  document), external resource evidence, and CSP evidence, so a
+  single-file rich web app is never misreported as having no CSS/JS.
+  Discovery + testability assessment only — **not** browser/UI execution
+  (see [`docs/FRONTEND_ANALYSIS.md`](docs/FRONTEND_ANALYSIS.md)).
 - **Functional/performance testing**: OpenAPI 3.x REST APIs.
 - **Database assessment**: SQL Server, PostgreSQL, MySQL, SQLite.
 - **CI**: any provider that can run a shell command and check an exit

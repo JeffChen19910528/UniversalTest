@@ -48,3 +48,19 @@ class Severity(str, Enum):
     MEDIUM = "medium"
     LOW = "low"
     INFO = "info"
+
+
+class FindingClassification(str, Enum):
+    """What *kind* of thing a finding is, independent of its `status`/
+    `severity` (Static Web Analysis & Assessment Semantics Hardening brief
+    §5: "absence of testing infrastructure is not evidence of an
+    application defect"). A `WARNING`-status finding classified
+    `TESTABILITY_GAP` must never be read the same way as one classified
+    `DEFECT` — this is the field that lets a report/GUI say so explicitly.
+    """
+
+    DEFECT = "defect"
+    TESTABILITY_GAP = "testability_gap"
+    NOT_ASSESSED = "not_assessed"
+    INFORMATIONAL = "informational"
+    EXECUTION_FAILURE = "execution_failure"

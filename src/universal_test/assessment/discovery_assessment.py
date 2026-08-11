@@ -4,9 +4,9 @@ Health" categories, plus "Test Infrastructure".
 
 from __future__ import annotations
 
-from universal_test.core.models.enums import AssessmentStatus, DetectionConfidence, Severity
+from universal_test.core.models.enums import AssessmentStatus, DetectionConfidence, FindingClassification, Severity
 from universal_test.core.models.evidence import Evidence
-from universal_test.discovery.models import ProjectModel
+from universal_test.discovery.models import FrontendType, ProjectModel
 from universal_test.assessment.models import AssessmentCategory, AssessmentFinding
 
 
@@ -33,6 +33,7 @@ def assess_project_discovery(model: ProjectModel) -> AssessmentCategory:
             description="; ".join(model.warnings),
             recommendation="Review the listed files/parsers. Discovery continued and produced a "
                             "result, but some data may be incomplete.",
+            classification=FindingClassification.INFORMATIONAL,
         ))
 
     summary = (
@@ -52,9 +53,21 @@ def assess_project_discovery(model: ProjectModel) -> AssessmentCategory:
 
 def assess_build_health(model: ProjectModel) -> AssessmentCategory:
     detected = [b for b in model.build_systems if b.confidence == DetectionConfidence.DETECTED]
+    is_static_web_only = (
+        not model.build_systems
+        and model.frontend.detected
+        and model.frontend.frontend_type in (FrontendType.STATIC_WEB, FrontendType.UNKNOWN_WEB)
+    )
     if detected:
         status = AssessmentStatus.PASS
         reason = None
+    elif is_static_web_only:
+        # A static HTML/CSS/JS website legitimately has no package manager
+        # or build tool - this is not a build-health problem (Static Web
+        # Analysis brief §7). Only a project that could plausibly need one
+        # (a framework/backend detected, or ambiguous evidence) still WARNs.
+        status = AssessmentStatus.PASS
+        reason = "static website detected; a package manager/build system is not required"
     elif model.build_systems:
         status = AssessmentStatus.WARNING
         reason = "build system evidence is weak (inferred only)"
@@ -84,10 +97,15 @@ def assess_test_infrastructure(model: ProjectModel) -> AssessmentCategory:
             id="TESTINFRA-001", category="Test Infrastructure", status=AssessmentStatus.WARNING,
             severity=Severity.MEDIUM, confidence=0.6,
             title="No test framework or test directory detected",
-            description="Neither a recognized test framework/config file nor a conventional test "
-                         "directory (tests/, test/, __tests__/, spec/) was found.",
+            description=(
+                "Neither a recognized test framework/config file nor a conventional test "
+                "directory (tests/, test/, __tests__/, spec/) was found. This is a testability "
+                "limitation - automated regression testing is not currently available for this "
+                "project - it does NOT indicate that the application itself contains defects."
+            ),
             recommendation="Add an automated test framework appropriate for the project's primary "
                             "language, even a minimal one, to make future regressions detectable.",
+            classification=FindingClassification.TESTABILITY_GAP,
         ))
 
     names = [t.name for t in model.test_frameworks]

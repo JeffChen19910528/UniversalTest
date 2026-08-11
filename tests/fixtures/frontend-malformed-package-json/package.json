@@ -1,0 +1,5 @@
+{
+  "name": "frontend-malformed-package-json-fixture",
+  "dependencies": {
+    "react": "^18.2.0",
+  }

@@ -4,7 +4,7 @@ what Phase 3 already measured (Phase 5 brief §8/§9).
 
 from __future__ import annotations
 
-from universal_test.core.models.enums import AssessmentStatus, Severity
+from universal_test.core.models.enums import AssessmentStatus, FindingClassification, Severity
 from universal_test.core.models.evidence import Evidence
 from universal_test.core.orchestration.orchestrator import RunResult
 from universal_test.assessment.models import AssessmentCategory, AssessmentFinding
@@ -38,6 +38,7 @@ def assess_functional_health(
             evidence=[Evidence("functional_summary", {"passed": passed, "failed": failed, "error": error})],
             recommendation="Review each failed test's assertion evidence. Confirm whether the "
                             "behavior is a genuine defect or an outdated expectation.",
+            classification=FindingClassification.DEFECT,
         ))
     if error:
         severity = Severity.HIGH if error == executed else Severity.MEDIUM
@@ -50,6 +51,7 @@ def assess_functional_health(
             evidence=[Evidence("functional_summary", {"passed": passed, "failed": failed, "error": error})],
             recommendation="Confirm the target is reachable and responsive; a total transport "
                             "failure usually means the target URL, port, or network path is wrong.",
+            classification=FindingClassification.EXECUTION_FAILURE,
         ))
 
     summary = (

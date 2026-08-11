@@ -74,6 +74,50 @@ def to_text(model: ProjectModel) -> str:
     _section("API / Service Evidence", model.apis, lambda d: f"[{_fmt_confidence(d.confidence.value)}] {d.name} ({d.kind})")
     _section("Test Frameworks", model.test_frameworks, lambda d: f"[{_fmt_confidence(d.confidence.value)}] {d.name}")
 
+    lines.append("Frontend / Web Application")
+    lines.append("-" * 26)
+    fe = model.frontend
+    if not fe.detected:
+        lines.append("(no frontend detected)")
+    else:
+        lines.append(f"[{_fmt_confidence(fe.detection_confidence.value)}] Frontend detected")
+        if fe.frontend_type:
+            lines.append(f"     Type: {fe.frontend_type.value}")
+        if fe.entry_points:
+            lines.append(f"     Entry point(s): {', '.join(fe.entry_points)}")
+        if len(fe.web_roots) > 1:
+            lines.append(f"     Multiple web roots detected: {', '.join(fe.web_roots)}")
+        if fe.html_page_count or fe.css_file_count or fe.js_file_count:
+            lines.append(
+                f"     HTML pages: {fe.html_page_count}  CSS files: {fe.css_file_count}  "
+                f"JS files: {fe.js_file_count}  (inline CSS blocks: {fe.inline_css_count}, "
+                f"inline JS blocks: {fe.inline_js_count})"
+            )
+        if fe.application_pattern:
+            lines.append(f"     Application pattern: {fe.application_pattern} (evidence suggests, not confirmed)")
+        if fe.css_frameworks:
+            lines.append(f"     CSS frameworks: {', '.join(fe.css_frameworks)}")
+        lines.append(f"     Routes: {fe.routes.status.value} (evidence in {fe.routes.count} file(s))")
+        lines.append(f"     Components: {fe.components.status.value}")
+        lines.append(f"     Forms: {fe.forms.status.value}")
+        lines.append(f"     Interactive UI evidence: {fe.interactive_ui.status.value}")
+        lines.append(f"     API clients: {fe.api_clients.status.value}")
+        if fe.browser_apis:
+            lines.append(f"     Browser APIs detected: {', '.join(fe.browser_apis)}")
+        if fe.external_resources:
+            lines.append(f"     External resources: {', '.join(fe.external_resources)}")
+        lines.append(f"     Content-Security-Policy evidence: {fe.csp.status.value}")
+        lines.append(f"     Responsive design evidence: {fe.responsive.status.value}")
+        lines.append(f"     Authentication UI evidence: {fe.auth_ui.status.value}")
+        if fe.build_scripts:
+            lines.append(f"     Build scripts: {', '.join(fe.build_scripts)}")
+        if fe.test_scripts:
+            lines.append(f"     Test scripts: {', '.join(fe.test_scripts)}")
+        if fe.frontend_test_directories:
+            lines.append(f"     Test directories: {', '.join(fe.frontend_test_directories)}")
+        lines.append("     Browser/UI Execution: NOT_ASSESSED (browser automation adapter not enabled)")
+    lines.append("")
+
     lines.append("Potential Secrets")
     lines.append("-" * 17)
     if not model.secrets:
@@ -171,6 +215,51 @@ def to_markdown(model: ProjectModel) -> str:
     _table("Test Frameworks", model.test_frameworks, lambda items: (
         ["Test Framework", "Confidence"], [[d.name, d.confidence.value] for d in items],
     ))
+
+    lines.append("## Frontend / Web Application")
+    lines.append("")
+    fe = model.frontend
+    if not fe.detected:
+        lines.append("_No frontend detected._")
+        lines.append("")
+    else:
+        lines.append(f"- Detected: {fe.detection_confidence.value}")
+        if fe.frontend_type:
+            lines.append(f"- Type: `{fe.frontend_type.value}`")
+        if fe.entry_points:
+            lines.append(f"- Entry point(s): {', '.join(f'`{e}`' for e in fe.entry_points)}")
+        if len(fe.web_roots) > 1:
+            lines.append(f"- Multiple web roots detected: {', '.join(f'`{r}`' for r in fe.web_roots)}")
+        if fe.html_page_count or fe.css_file_count or fe.js_file_count:
+            lines.append(
+                f"- HTML pages: {fe.html_page_count} · CSS files: {fe.css_file_count} · "
+                f"JS files: {fe.js_file_count} (inline CSS blocks: {fe.inline_css_count}, "
+                f"inline JS blocks: {fe.inline_js_count})"
+            )
+        if fe.application_pattern:
+            lines.append(f"- Application pattern: `{fe.application_pattern}` _(evidence suggests, not confirmed)_")
+        if fe.css_frameworks:
+            lines.append(f"- CSS frameworks: {', '.join(fe.css_frameworks)}")
+        lines.append(f"- Routes evidence: {fe.routes.status.value}")
+        lines.append(f"- Components evidence: {fe.components.status.value}")
+        lines.append(f"- Forms evidence: {fe.forms.status.value}")
+        lines.append(f"- Interactive UI evidence: {fe.interactive_ui.status.value}")
+        lines.append(f"- API client evidence: {fe.api_clients.status.value}")
+        if fe.browser_apis:
+            lines.append(f"- Browser APIs detected: {', '.join(fe.browser_apis)}")
+        if fe.external_resources:
+            lines.append(f"- External resources: {', '.join(fe.external_resources)}")
+        lines.append(f"- Content-Security-Policy evidence: {fe.csp.status.value}")
+        lines.append(f"- Responsive design evidence: {fe.responsive.status.value}")
+        lines.append(f"- Authentication UI evidence: {fe.auth_ui.status.value}")
+        if fe.build_scripts:
+            lines.append(f"- Build scripts: {', '.join(f'`{k}`' for k in fe.build_scripts)}")
+        if fe.test_scripts:
+            lines.append(f"- Test scripts: {', '.join(f'`{k}`' for k in fe.test_scripts)}")
+        if fe.frontend_test_directories:
+            lines.append(f"- Test directories: {', '.join(f'`{d}`' for d in fe.frontend_test_directories)}")
+        lines.append("- **Browser/UI Execution: NOT_ASSESSED** - browser automation adapter is not enabled in this version.")
+        lines.append("")
 
     lines.append("## Potential Secrets")
     lines.append("")

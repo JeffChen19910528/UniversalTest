@@ -1,6 +1,6 @@
 import json
 
-from universal_test.core.models.enums import AssessmentStatus, DetectionConfidence
+from universal_test.core.models.enums import AssessmentStatus, DetectionConfidence, FindingClassification
 from universal_test.discovery import discover
 from universal_test.discovery.models import ProjectModel, SecretFinding
 from universal_test.assessment.configuration_assessment import assess_configuration_hygiene
@@ -27,6 +27,9 @@ def test_secret_pattern_is_warning_never_fail():
     category = assess_configuration_hygiene(model)
     assert category.status == AssessmentStatus.WARNING
     assert len(category.findings) == 1
+    # an unconfirmed pattern match is informational, not a confirmed defect
+    # (brief §5) - it must not count toward "Application Health".
+    assert category.findings[0].classification == FindingClassification.INFORMATIONAL
 
 
 def test_secret_value_never_appears_in_finding():

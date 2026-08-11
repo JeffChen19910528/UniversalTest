@@ -525,6 +525,118 @@ universal-test assess <path> --ci --yes --target <url> --baseline baseline.json 
   recommended workflow, not something this tool configures); no
   unbounded/automatic retry.
 
+### 4.12 Frontend / Web Application Analysis (Phase 8.5 — implemented)
+
+```
+universal-test scan <path>
+universal-test assess <path>
+```
+
+Discovery + testability assessment only — **not** browser/UI execution
+(that remains the unimplemented Phase 9 Browser Adapter). See
+`docs/FRONTEND_ANALYSIS.md` for the full detail; summary:
+
+- **Detection.** React, Next.js, Vue, Nuxt, Angular, Svelte, SvelteKit,
+  Solid, Astro — via `package.json` dependency or framework config file
+  only, never a prose/comment mention (verified by a dedicated
+  false-positive test: a backend project whose README mentions "React"
+  must not be detected as a React frontend). Build tools (Vite, Webpack,
+  Rollup, Turbopack, Angular CLI) and package managers (npm/yarn/pnpm/bun)
+  are reported as distinct facts from frameworks/meta-frameworks.
+- **Test framework detection.** Jest, Vitest, Mocha, Karma, Jasmine,
+  Testing Library (unit/component); Playwright, Cypress, WebdriverIO,
+  Puppeteer (browser automation) — reported as separate categories so "has
+  unit tests" and "has browser automation" are never conflated.
+- **Bounded heuristic evidence** for routes/UI components/forms/
+  frontend-API-client usage: a capped substring scan (up to 300 files
+  under recognized frontend source roots), always labeled with its scan
+  bound, never presented as exhaustive.
+- **Read-only, offline, no script execution.** `package.json` `scripts`
+  are copied as display-only strings, never executed; no `npm`/`node`/
+  browser/network activity occurs during discovery (enforced by a test
+  that fails if `subprocess`/`socket` is touched).
+- **No secret leakage.** `.env.example`/`.env.template` contribute key
+  names only — values are never captured.
+- **Assessment**: a "Frontend / Web Application Health" category, capped
+  below `FAIL` (missing test tooling is a testability gap, not proof of a
+  defect) — same rule already used for database connectivity problems.
+- **Explicit Discovery-vs-Execution boundary everywhere**: CLI, JSON/
+  Markdown/HTML reports, and the GUI all show "Browser/UI Execution:
+  NOT_ASSESSED" whenever a frontend is detected, so "frontend detected"
+  is never read as "frontend tested."
+- **Explicitly not built this phase**: no Playwright/Selenium execution,
+  no visual regression, no AI test generation, no security/CVE scanning,
+  no GraphQL/gRPC support.
+
+**Static Web Analysis extension (same phase, follow-up enhancement).** A
+project needs no `package.json`, lockfile, or config file at all to be
+recognized as a frontend — a plain static HTML/CSS/JavaScript website is a
+first-class `FrontendType.STATIC_WEB`, not a degraded fallback of the
+framework case. Classification (`STATIC_WEB`/`FRAMEWORK_WEB`/
+`FULL_STACK_WEB`/`UNKNOWN_WEB`) always gives framework/config evidence
+precedence over a static-HTML guess — a React project's own `index.html`
+never reclassifies it as Static Web. Conservative false-positive guards
+(brief §20) keep generated documentation (`docs/`), code-coverage reports
+(`coverage/`/`htmlcov/`, excluded from discovery entirely), and
+server-rendered backend templates (`templates/`) from being misclassified
+as a standalone static frontend — a lone HTML file in one of those
+locations with no supporting CSS/JS is not detected as a frontend at all.
+Detected static sites additionally report HTML/CSS/JS file counts, entry
+point(s) (or an explicit "multiple web roots" note for monorepos),
+navigation-link evidence, form/API-client/responsive-design/
+authentication-UI structural evidence, and known CSS framework evidence
+(Bootstrap/Tailwind/Bulma/Foundation, matched by filename/link, never by
+an arbitrary class name) — all bounded, offline, and never executing any
+HTML/CSS/JavaScript. See `docs/FRONTEND_ANALYSIS.md`.
+
+### 4.13 Static Web Capability Detection & Assessment Semantics Hardening (same phase, follow-up)
+
+**Capability detection extension.** A single rich HTML file (substantial
+inline CSS/JS, browser API usage) is never misreported as "CSS: 0,
+JavaScript: 0" — `inline_css_count`/`inline_js_count` are additive to the
+existing external-file counts. New bounded, offline, read-only evidence:
+interactive UI elements, browser APIs (microphone/MediaRecorder/speech
+synthesis/storage/WebSocket/notifications/geolocation/clipboard/file
+reading/IndexedDB — kept structurally separate from backend API-client
+evidence), application pattern (static multi-page / single-page
+application / static document, never asserted without real supporting
+evidence), external resource evidence (a few well-known CDN/font hosts
+normalized to a friendly label, never fetched), and
+Content-Security-Policy evidence. Authentication-UI detection was
+hardened: a real password field is strong evidence on its own; generic
+storage/header markers only count as weak evidence, and only when
+co-occurring with an actual `<form>` — a README/comment mentioning
+"login"/"password"/"authentication" was never sufficient and still isn't.
+
+**Assessment semantics — additive only, nothing removed or renamed.**
+`overall_status`, `compute_overall_status`, Quality Gate, regression,
+baseline, and CLI exit codes are completely unchanged — this project
+deliberately does not introduce a false `PASS` or a numeric quality score
+to make results "look better." Instead:
+
+- Every `AssessmentFinding` gained a `classification`
+  (`defect`/`testability_gap`/`not_assessed`/`informational`/
+  `execution_failure`) so a report/GUI can say, explicitly, whether a
+  `WARNING` means a confirmed problem or a testability limitation.
+- `ProjectAssessment` gained two new, independent fields:
+  `application_health` ("no confirmed defects" unless something that
+  actually *executed* against the live project — Functional Health or
+  Performance — reported a real problem) and `assessment_completeness`
+  ("full"/"partial", derived from existing coverage/unassessed data).
+- A static website with no build system, or a project with no automated
+  test framework, is never presented as a build or application defect —
+  `Build / Project Health` reads `PASS` for a genuine static site (a
+  package manager/build tool is architecturally not required), and
+  missing-test-framework findings are labeled `testability_gap` with
+  wording that explicitly states this does not indicate the application
+  has a defect. `Project Discovery` no longer reads `UNKNOWN`/"0
+  languages" for a valid static HTML/CSS/JS site.
+
+See `docs/FRONTEND_ANALYSIS.md` and `ARCHITECTURE.md` §16.8 for the full
+detail, including the precise rule `compute_application_health` uses and
+why it's a category whitelist rather than a classification-based
+aggregation.
+
 ## 5. Cross-cutting requirements (apply to every phase)
 
 | Requirement | Rule |

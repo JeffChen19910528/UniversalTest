@@ -7,7 +7,7 @@ FAIL, and the matched value is never available to reach this module at all
 
 from __future__ import annotations
 
-from universal_test.core.models.enums import AssessmentStatus, Severity
+from universal_test.core.models.enums import AssessmentStatus, FindingClassification, Severity
 from universal_test.core.models.evidence import Evidence
 from universal_test.discovery.models import ProjectModel
 from universal_test.assessment.models import AssessmentCategory, AssessmentFinding
@@ -34,6 +34,7 @@ def assess_configuration_hygiene(model: ProjectModel) -> AssessmentCategory:
             })],
             recommendation="Verify whether this is a real credential. If so, rotate it and move it "
                             "to a secret manager or environment variable outside version control.",
+            classification=FindingClassification.INFORMATIONAL,
         ))
 
     truncated = len(model.secrets) > _MAX_SECRET_FINDINGS
@@ -44,6 +45,7 @@ def assess_configuration_hygiene(model: ProjectModel) -> AssessmentCategory:
             title=f"{len(model.secrets) - _MAX_SECRET_FINDINGS} additional potential secret pattern(s) not shown",
             description=f"Only the first {_MAX_SECRET_FINDINGS} potential-secret findings are listed "
                          f"individually; run `universal-test scan --format json` for the full list.",
+            classification=FindingClassification.INFORMATIONAL,
         ))
 
     if model.secrets:

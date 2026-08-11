@@ -35,6 +35,8 @@ def to_dict(bundle: AssessReportBundle) -> dict:
         "quality_gate": bundle.quality_gate.to_dict() if bundle.quality_gate else None,
         "assessment": {
             "overall_status": assessment.overall_status.value,
+            "application_health": assessment.application_health.value,
+            "assessment_completeness": assessment.assessment_completeness,
             "categories": [c.to_dict() for c in assessment.categories],
         },
         "findings": [f.to_dict() for f in assessment.findings],

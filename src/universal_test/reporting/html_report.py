@@ -43,6 +43,19 @@ def _evidence_html(evidence) -> str:
     return f"<ul>{items}</ul>"
 
 
+_CLASSIFICATION_LABELS = {
+    "defect": "Confirmed defect signal - something that actually executed showed a problem.",
+    "testability_gap": "Testability limitation - automated coverage is limited here. This does NOT indicate the application has a defect.",
+    "not_assessed": "Not assessed - this could not be fully evaluated.",
+    "informational": "Informational - an unconfirmed observation, not a proven issue.",
+    "execution_failure": "Execution/connectivity failure - the target could not be reached, distinct from a behavioral defect.",
+}
+
+
+def _classification_label(classification_value: str) -> str:
+    return _CLASSIFICATION_LABELS.get(classification_value, classification_value)
+
+
 def to_html(bundle: AssessReportBundle) -> str:
     a = bundle.assessment
 
@@ -57,6 +70,7 @@ def to_html(bundle: AssessReportBundle) -> str:
         f'<h3>[{_e(f.severity.value.upper())}] {_e(f.title)}</h3>'
         f'<p><strong>Category:</strong> {_e(f.category)} &middot; '
         f'<strong>Status:</strong> {_status_span(f.status.value)} &middot; '
+        f'<strong>Type:</strong> {_e(_classification_label(f.classification.value))} &middot; '
         f'<strong>Confidence:</strong> {_e(f.confidence)}</p>'
         f'<p>{_e(f.description)}</p>'
         + _evidence_html(f.evidence)
@@ -64,6 +78,19 @@ def to_html(bundle: AssessReportBundle) -> str:
         + "</div>"
         for f in a.findings
     ) or "<p><em>No findings were raised.</em></p>"
+
+    testability_cat_for_summary = next(c for c in a.categories if c.name == "Testability")
+    assessment_summary_html = (
+        f'<p><strong>Application Health:</strong> {_status_span(a.application_health.value)} '
+        "- reflects only categories driven by something that actually executed "
+        "(Functional/Performance). A PASS here means no confirmed defect was found; "
+        "it does not mean every capability was tested.</p>"
+        f'<p><strong>Testability:</strong> {_status_span(testability_cat_for_summary.status.value)} '
+        "- how testable this project currently is, independent of whether the "
+        "application itself works.</p>"
+        f'<p><strong>Assessment Coverage:</strong> {_e(a.assessment_completeness.upper())} '
+        "- whether every assessable area was actually assessed this run.</p>"
+    )
 
     coverage_rows = "\n".join(
         f"<tr><td>{_e(item.name)}</td>"
@@ -88,6 +115,65 @@ def to_html(bundle: AssessReportBundle) -> str:
     functional_cat = next(c for c in a.categories if c.name == "Functional Health")
     performance_cat = next(c for c in a.categories if c.name == "Performance")
     database_cat = next(c for c in a.categories if c.name == "Database Health")
+    frontend_cat = next((c for c in a.categories if c.name == "Frontend / Web Application Health"), None)
+
+    fe = bundle.model.frontend
+    if fe.detected:
+        frontend_signal_rows = "\n".join(
+            f"<tr><td>{_e(label)}</td><td>{_e(signal.status.value)}</td></tr>"
+            for label, signal in (
+                ("Routes", fe.routes), ("Components", fe.components),
+                ("Forms", fe.forms), ("Interactive UI", fe.interactive_ui),
+                ("API clients", fe.api_clients),
+                ("Responsive design", fe.responsive), ("Authentication UI", fe.auth_ui),
+                ("Content-Security-Policy", fe.csp),
+            )
+        )
+        frontend_meta_bits = []
+        if fe.frontend_type:
+            frontend_meta_bits.append(f"<strong>Type:</strong> {_e(fe.frontend_type.value)}")
+        if fe.entry_points:
+            frontend_meta_bits.append(f"<strong>Entry point(s):</strong> {_e(', '.join(fe.entry_points))}")
+        if len(fe.web_roots) > 1:
+            frontend_meta_bits.append(f"<strong>Multiple web roots detected:</strong> {_e(', '.join(fe.web_roots))}")
+        if fe.html_page_count or fe.css_file_count or fe.js_file_count:
+            frontend_meta_bits.append(
+                f"<strong>HTML pages:</strong> {fe.html_page_count} &middot; "
+                f"<strong>CSS files:</strong> {fe.css_file_count} &middot; "
+                f"<strong>JS files:</strong> {fe.js_file_count} "
+                f"(inline CSS blocks: {fe.inline_css_count}, inline JS blocks: {fe.inline_js_count})"
+            )
+        if fe.application_pattern:
+            frontend_meta_bits.append(
+                f"<strong>Application pattern:</strong> {_e(fe.application_pattern)} "
+                "<em>(evidence suggests, not confirmed)</em>"
+            )
+        if fe.css_frameworks:
+            frontend_meta_bits.append(f"<strong>CSS frameworks:</strong> {_e(', '.join(fe.css_frameworks))}")
+        if fe.browser_apis:
+            frontend_meta_bits.append(f"<strong>Browser APIs detected:</strong> {_e(', '.join(fe.browser_apis))}")
+        if fe.external_resources:
+            frontend_meta_bits.append(f"<strong>External resources:</strong> {_e(', '.join(fe.external_resources))}")
+        frontend_meta_html = (
+            "<p>" + " &middot; ".join(frontend_meta_bits) + "</p>" if frontend_meta_bits else ""
+        )
+        frontend_html = (
+            f'<p><strong>Status:</strong> {_status_span(frontend_cat.status.value) if frontend_cat else "N/A"}</p>'
+            f'<p>{_e(frontend_cat.summary) if frontend_cat else ""}</p>'
+            + frontend_meta_html
+            + f"<table><tr><th>Signal</th><th>Status</th></tr>{frontend_signal_rows}</table>"
+            '<p><em><strong>Browser/UI Execution: NOT_ASSESSED</strong> - browser automation '
+            "adapter is not enabled in this version. Frontend detected does not mean the "
+            "frontend was functionally tested.</em></p>"
+        )
+    elif frontend_cat is not None:
+        frontend_html = (
+            f'<p><strong>Status:</strong> {_status_span(frontend_cat.status.value)}</p>'
+            f'<p>{_e(frontend_cat.summary)}</p>'
+            + (f'<p><em>Reason: {_e(frontend_cat.reason)}</em></p>' if frontend_cat.reason else "")
+        )
+    else:
+        frontend_html = "<p><em>Frontend was not assessed.</em></p>"
 
     if bundle.regression is None:
         regression_html = "<p><em>No baseline was provided; regression comparison was not performed.</em></p>"
@@ -120,9 +206,16 @@ def to_html(bundle: AssessReportBundle) -> str:
             f"<tr><td>{_e(f.rule)}</td><td>{_e(f.level.upper())}</td><td>{_e(f.title)}</td></tr>"
             for f in qg.findings
         )
+        qg_clarification = ""
+        if qg.status.value == "pass":
+            qg_clarification = ('<p><em>No configured quality-gate rule failed. This does not mean '
+                                 "all application behavior was tested.</em></p>")
+        elif qg.status.value == "fail":
+            qg_clarification = "<p><em>A configured quality-gate condition failed. See findings below.</em></p>"
         quality_gate_html = (
             f'<p><strong>Status:</strong> {_status_span(qg.status.value)} '
             f'&middot; <strong>Exit code:</strong> {_e(qg.exit_code)}</p>'
+            + qg_clarification
             + (f'<p><em>Reason: {_e(qg.reason)}</em></p>' if qg.reason else "")
             + (
                 f"<table><tr><th>Rule</th><th>Level</th><th>Title</th></tr>{qg_finding_rows}</table>"
@@ -159,6 +252,9 @@ def to_html(bundle: AssessReportBundle) -> str:
   <p><strong>Generated:</strong> {_e(a.generated_at)} &middot; tool version {_e(a.tool_version)} &middot; schema {_e(a.schema_version)}</p>
 </div>
 
+<h2>Assessment Summary</h2>
+{assessment_summary_html}
+
 <h2>Critical Findings</h2>
 <ul>{critical_html}</ul>
 
@@ -183,6 +279,9 @@ def to_html(bundle: AssessReportBundle) -> str:
 <p><strong>Status:</strong> {_status_span(database_cat.status.value)}</p>
 <p>{_e(database_cat.summary)}</p>
 {f"<p><em>Reason: {_e(database_cat.reason)}</em></p>" if database_cat.reason else ""}
+
+<h2>Frontend / Web Application</h2>
+{frontend_html}
 
 <h2>Regression</h2>
 {regression_html}

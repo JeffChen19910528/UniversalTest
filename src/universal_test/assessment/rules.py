@@ -22,6 +22,16 @@ test_rules.py` for the exhaustive case coverage this rule is held to.
 from __future__ import annotations
 
 from universal_test.core.models.enums import AssessmentStatus
+from universal_test.assessment.models import AssessmentCategory
+
+# The only two categories whose status is ever driven by something that
+# actually *executed* against the live project (Phase 3/4's real run
+# results via `execution_health_status()`), rather than static discovery/
+# config evidence. Every other category is architecturally incapable of
+# reaching FAIL and its WARNING never means "confirmed defect" (each
+# module's own docstring says so: "capped below FAIL"/"never FAIL") - see
+# Static Web Analysis & Assessment Semantics Hardening brief §10/§29.
+_EXECUTION_DRIVEN_CATEGORY_NAMES = {"Functional Health", "Performance"}
 
 
 def compute_overall_status(category_statuses: list[AssessmentStatus]) -> AssessmentStatus:
@@ -65,5 +75,27 @@ def execution_health_status(
     if total_transport_failed == total_attempted:
         return AssessmentStatus.FAIL
     if total_transport_failed > 0 or total_check_failed > 0:
+        return AssessmentStatus.WARNING
+    return AssessmentStatus.PASS
+
+
+def compute_application_health(categories: list[AssessmentCategory]) -> AssessmentStatus:
+    """"No confirmed defects" (`PASS`) unless a category whose status is
+    driven by real execution (Functional Health / Performance) reports
+    `WARNING`/`FAIL`. Deliberately a category-name whitelist, not a
+    `AssessmentFinding.classification`-based aggregation - every
+    non-execution category (Testability, Test Infrastructure, Build
+    Health, Database Health, Configuration Hygiene, Frontend Health,
+    Project Discovery) is already architecturally incapable of reaching
+    `FAIL`, so their `WARNING`s never represent a confirmed defect and are
+    correctly excluded here. `NOT_ASSESSED`/absent categories are silently
+    excluded too - "nothing executed yet" is "no confirmed defects," not
+    `UNKNOWN` (brief §10/§11: distinct from `overall_status`, which this
+    function does not replace or modify).
+    """
+    relevant = [c.status for c in categories if c.name in _EXECUTION_DRIVEN_CATEGORY_NAMES]
+    if AssessmentStatus.FAIL in relevant:
+        return AssessmentStatus.FAIL
+    if AssessmentStatus.WARNING in relevant:
         return AssessmentStatus.WARNING
     return AssessmentStatus.PASS

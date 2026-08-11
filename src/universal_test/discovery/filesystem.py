@@ -16,6 +16,7 @@ EXCLUDED_DIR_NAMES = {
     "venv", ".venv", "env", "__pycache__", ".mypy_cache", ".pytest_cache",
     ".idea", ".vscode", "vendor", "Pods", ".gradle", ".terraform",
     ".tox", "egg-info", ".egg-info", "site-packages", ".next", ".nuxt",
+    "coverage", "htmlcov",
 }
 
 # files larger than this are skipped when reading content (avoids scanning

@@ -19,6 +19,7 @@ from universal_test.discovery import (
     database,
     filesystem,
     framework,
+    frontend,
     infrastructure,
     language,
     manifests,
@@ -64,6 +65,7 @@ def discover(project_path: str | Path) -> ProjectModel:
         ("databases", lambda: database.detect_databases(files, bundle)),
         ("apis", lambda: api.detect_apis(files, bundle)),
         ("test_frameworks", lambda: test_framework.detect_test_frameworks(files, bundle)),
+        ("frontend", lambda: frontend.detect_frontend(files, bundle, model.frameworks)),
         ("secrets", lambda: secrets.scan_for_secrets(files)),
     ):
         try:

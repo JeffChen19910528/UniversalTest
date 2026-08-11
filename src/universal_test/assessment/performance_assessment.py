@@ -4,7 +4,7 @@ RPS/percentiles/error-rate, only roll them up (Phase 5 brief §9).
 
 from __future__ import annotations
 
-from universal_test.core.models.enums import AssessmentStatus, Severity
+from universal_test.core.models.enums import AssessmentStatus, FindingClassification, Severity
 from universal_test.core.models.evidence import Evidence
 from universal_test.testing.performance.models import PerformanceResult
 from universal_test.assessment.models import AssessmentCategory, AssessmentFinding
@@ -48,6 +48,7 @@ def assess_performance(perf_result: PerformanceResult | None, not_run_reason: st
                     if is_latency else
                     "Investigate elevated error rate or reduced throughput under this concurrency level."
                 ),
+                classification=FindingClassification.DEFECT,
             ))
             if status == AssessmentStatus.PASS:
                 status = AssessmentStatus.WARNING  # a threshold breach always surfaces, even with 0 transport failures
