@@ -2158,3 +2158,873 @@ synthesis`, `Local storage`.
 None planned — same stop point as before: Browser Adapter execution,
 visual regression, AI test generation, security scanning, GraphQL/gRPC
 remain out of scope without explicit go-ahead.
+
+## Phase 9 — Browser / Web UI Functional Testing — ✅ Done (2026-08-12)
+
+The capability the previous two phases explicitly reserved: real, bounded,
+explicitly-authorized browser execution on top of Phase 8.5's `FrontendInfo`
+discovery evidence. See `docs/BROWSER_TESTING.md`, `docs/BROWSER_SAFETY.md`,
+and `ARCHITECTURE.md` §17.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **677 passed, 0 failed, 0 skipped, 0 errors** (114.29s) —
+matched the stated baseline exactly.
+
+### Files changed / added
+
+- `src/universal_test/core/adapter_info.py` (new) — `AdapterInfo` factored
+  out of `adapters/rest/adapter.py` (which flagged this exact refactor in
+  its own docstring); `adapters/rest/adapter.py` and
+  `adapters/frontend/adapter.py` updated to import it instead of each
+  redefining it.
+- `src/universal_test/core/configuration/config.py` — new `BrowserConfig`
+  dataclass (`enabled`, `browser`, `headless`, three timeout fields,
+  `allow_external`, `screenshots`), hard-capping every timeout in
+  `__post_init__` independent of what a project configures (same pattern
+  `CiConfig.retry.count` already established); registered in
+  `Config`/`_SECTION_TYPES`.
+- `src/universal_test/core/redaction.py` — fixed a real, spec-relevant gap
+  the browser redaction tests surfaced: `Authorization: Bearer <token>`
+  previously only redacted the word "Bearer," leaking the actual token.
+  The key=value value pattern now also matches `Bearer\s+\S+`/`Basic\s+\S+`.
+- `src/universal_test/adapters/browser/` (new package) — `errors.py`
+  (classification exceptions, each subclassing an existing `core/errors.py`
+  type so `TestEngine`'s generic exception handling needed zero changes),
+  `target_policy.py` (pure-function target safety policy),
+  `models.py` (`BrowserStep`/`BrowserSelector`/`BrowserRunResult`),
+  `executor.py` (Playwright session + step execution + context building,
+  lazy import), `local_server.py` (bounded loopback static file server),
+  `assertions.py` (13 browser assertion evaluators on a dedicated
+  `AssertionEngine` instance), `test_generation.py` (conservative default
+  smoke test), `adapter.py` (`run()`/`BrowserAdapter`, mirrors
+  `adapters/rest/adapter.py`'s shape), `redaction.py` (thin wrapper around
+  `core/redaction.py`), `serializers.py` (CLI text/json/markdown output).
+- `pyproject.toml` — new `[project.optional-dependencies].browser =
+  ["playwright>=1.40"]`, following the `database` extra's exact pattern.
+- `src/universal_test/cli/main.py` — new `browser install`/`browser test`
+  nested subcommands (same pattern as `baseline save`/`baseline compare`);
+  `assess`/`baseline save`/`baseline compare` gained `--browser`/
+  `--allow-external`/`--screenshots` via `_add_pipeline_args`;
+  `_maybe_run_assess_browser()` mirrors `_maybe_run_assess_performance()`'s
+  confirmation-gate shape exactly.
+- `src/universal_test/application/service.py`,
+  `src/universal_test/application/events.py` — `AssessmentRequest` gained
+  `run_browser`/`browser_confirmed`/`browser_target`/
+  `browser_allow_external`/`browser_screenshots`; `_run_browser()` mirrors
+  `_run_performance()`; new `STAGE_BROWSER_TEST` event stage.
+- `src/universal_test/assessment/browser_assessment.py` (new),
+  `src/universal_test/assessment/engine.py`,
+  `src/universal_test/assessment/rules.py` — tenth assessment category
+  "Browser Testing," added to `_EXECUTION_DRIVEN_CATEGORY_NAMES` alongside
+  Functional Health/Performance (real execution evidence, capable of
+  reaching `FAIL`); `_compute_coverage`/`_compute_unassessed`'s previously
+  hard-coded "browser automation adapter is not enabled in this version"
+  string replaced with the real three-state distinction.
+- `src/universal_test/reporting/report_bundle.py`, `json_report.py`,
+  `markdown_report.py`, `html_report.py` — `browser_result` field; a
+  "Browser Testing" section (`NOT ASSESSED`/status+target+browser+summary/
+  execution-failure disclaimer); the Frontend section's hard-coded
+  "Browser/UI Execution: NOT_ASSESSED" note now reflects the real category
+  status.
+- `src/universal_test/regression/models.py` (new `BrowserSnapshot`/
+  `BrowserTestEntry`, optional field on `BaselineSnapshot` so old baseline
+  files still load), `snapshot.py` (`_browser_snapshot()`),
+  `browser_compare.py` (new, mirrors `functional_compare.py` file-for-file),
+  `engine.py` (wired into the comparator list).
+- `src/universal_test/gui/server.py` (`_request_from_json` parses the new
+  fields — reuses the existing `/api/assess` pipeline rather than adding
+  parallel `/api/browser/*` endpoints), `gui/static/index.html` (new
+  checkbox + confirmation box, mirroring Performance's), `app.js` (wiring,
+  `STAGE_BROWSER_TEST` in the progress list, corrected the previously
+  always-`NOT_ASSESSED` Frontend-card browser note to reflect the real
+  category status), `i18n.js` (new zh/en keys).
+- `tests/fixtures/browser-static-basic/`, `browser-static-broken/`,
+  `browser-static-permission/` (new) — happy-path navigation/click/fill
+  fixture, intentionally-broken (missing element, empty title, JS runtime
+  error) fixture, and a `getUserMedia`/`MediaRecorder` capability fixture.
+- `tests/adapters/browser/` (new, 46 tests): target policy, config,
+  assertions, redaction, and failure-classification unit tests (no browser
+  needed) plus `test_executor_integration.py` (15 tests against a real
+  installed Chromium via `local_server.py` + the fixtures above — skips
+  cleanly with a clear reason if Chromium isn't installed, never fails).
+- `tests/gui/test_gui_browser.py` (new, 3 tests, HTTP-level, real browser
+  execution through the full `/api/assess` pipeline).
+- `tests/regression/test_browser_compare.py` (new, 7 tests).
+- `tests/assessment/test_engine.py`, `tests/regression/test_engine.py` —
+  updated category-count assertions (`nine` → `ten` / new `Browser`
+  category) for the new category.
+- `docs/BROWSER_TESTING.md`, `docs/BROWSER_SAFETY.md` (new); `README.md`,
+  `README.zh-TW.md`, `ARCHITECTURE.md` (§17), `SPECIFICATION.md` (§4.14),
+  `ROADMAP.md`, `CHANGELOG.md`, `docs/README.md`,
+  `docs/POST_V1_BACKLOG.md` updated.
+
+### Architecture decisions worth recording
+
+- **No second test engine.** `core/engine/test_engine.py`'s
+  `Executor = Callable[[TestCase], dict]` contract already gives correct
+  failure classification for free (any executor exception → `ERROR`, no
+  assertions → `UNKNOWN`) — the browser executor just had to match that
+  shape. Zero Core changes were needed beyond `BrowserConfig`.
+- **Dedicated `AssertionEngine` instance, not the shared default.**
+  `AssertionEngine(register_builtins=False)` + `.register()` per browser
+  evaluator keeps REST/DB and browser assertion-type vocabularies from
+  ever colliding, verified by a dedicated test
+  (`test_browser_engine_does_not_carry_rest_assertions`).
+- **GUI reuses `/api/assess` rather than new `/api/browser/*` routes.**
+  A deliberate scope decision: browser testing became one more opt-in
+  checkbox in the existing pipeline (like Performance/Database), reusing
+  battle-tested run-tracking/SSE-streaming/error-sanitization instead of
+  duplicating it for a second endpoint.
+- **`console_summary` as an always-included, always-passing-by-default
+  assertion.** Spec required console/page-error counts to be captured as
+  `TestResult` evidence (§58) without auto-failing on them (§19-20).
+  Since `TestEngine` only attaches assertion-level evidence (not raw
+  executor-context evidence) to a `TestResult`, the cleanest way to route
+  those counts through the existing conduit without touching Core was one
+  more assertion type that always passes unless a test explicitly
+  configures `max_console_errors`.
+
+### Manual verification
+
+- CLI dry-run (`browser test ... --dry-run`) — shows target/browser/plan/
+  safety status, launches no browser.
+- CLI real run against `browser-static-basic` via `file://` — `PASSED`,
+  correct assertion-level evidence.
+- CLI real run against an invalid `file://` path — `ERROR`
+  (`BrowserNetworkError`, not misclassified as an application defect).
+- `assess --target ... --browser --yes` — "Browser Testing" `PASS` section
+  appears correctly in `report.md`.
+- `assess` with no `--browser` flag — "Browser Testing" `NOT ASSESSED`,
+  confirmed no browser process launched.
+- `assess --target https://example.com --browser --yes` (no
+  `--allow-external`) — rejected before any navigation.
+- `baseline save`/`baseline compare` with `--browser --yes` end-to-end —
+  "Browser: PASS, 1 browser test ID(s) compared ... 1 unchanged."
+- GUI: 3 dedicated HTTP-level tests cover not-requested (`NOT_ASSESSED`),
+  checked-without-confirmation (`NOT_ASSESSED`, reason mentions
+  "confirmation"), and confirmed-with-reachable-target (real Chromium
+  execution through the full pipeline, status in
+  `{pass, warning, fail}`).
+- `node --check` on `app.js`/`i18n.js` — syntactically valid.
+
+### Environment note
+
+Playwright (`playwright>=1.62.0` resolved) and a Chromium binary were both
+successfully installed in this session's environment
+(`pip install -e .[browser,dev]` then `python -m playwright install
+chromium`), so all 46 browser-adapter tests — including the 15 requiring a
+real launched browser — and the 3 GUI browser tests ran for real, not
+skipped. If a future environment lacks network access for the Chromium
+download, `test_executor_integration.py` and `test_gui_browser.py` will
+skip with an explicit reason (`pytest.importorskip`/module-level skip) or
+be affected respectively (GUI tests are not currently guarded by a skip —
+see Known limitations).
+
+### Known limitations
+
+- Per-test-case timeout is bounded by the sum of each step's own
+  navigation/action timeout, not a single hard wall-clock cap on the whole
+  test case (each individual timeout is itself hard-capped, so this is a
+  bounded-but-not-single-ceiling model, documented in
+  `docs/BROWSER_TESTING.md`'s Known Limitations).
+- No visual regression, accessibility auditing, security scanning, AI-
+  generated test plans, distributed/cloud browsers, or automatic project
+  server startup (`npm run dev`, etc.) — all explicitly out of scope per
+  the phase brief, none attempted.
+- File upload/download detected by static analysis is not exercised by
+  browser testing in this version — reported `NOT_ASSESSED` for that
+  specific capability by design (spec §22).
+
+### Full test suite result
+
+`pytest -q` → **735 passed, 0 failed, 0 skipped, 0 errors** (122.99s) —
+58 new tests over the 677 baseline, all real (none skipped due to a
+missing browser).
+
+### Next phase
+
+None planned — same stop condition as before, now extended: AI-generated
+browser tests, visual regression, an accessibility scanner, a security
+scanner, browser performance profiling, mobile/cloud browser farms,
+automatic project server startup, arbitrary JavaScript execution, and
+automatic credential discovery all remain out of scope without explicit
+go-ahead.
+
+## Phase 9 Hardening — Real-Project Validation — ✅ Done (2026-08-12)
+
+Hardening/validation pass only — no new capabilities, no architecture
+redesign. See `ARCHITECTURE.md` §17.7.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **735 passed, 0 failed, 0 skipped, 0 errors** (123.50s).
+`pytest -q tests/adapters/browser tests/gui/test_gui_browser.py` →
+**49 passed** — Chromium confirmed launchable, no skips.
+
+### Primary hardening item: TestCase wall-clock timeout
+
+Closed the known limitation the original Phase 9 report flagged: "Per-
+test-case timeout is bounded by the sum of step timeouts rather than one
+hard wall-clock ceiling."
+
+- `src/universal_test/adapters/browser/executor.py` — new `_remaining_ms()`
+  choke point: every blocking Playwright call (`page.goto`, `locator.click/
+  fill/select_option/check/uncheck/press/wait_for`, `page.wait_for_load_state`,
+  and the element-state-resolution calls used to build assertion evidence)
+  now receives `timeout=min(that call's own configured timeout, time left
+  in the TestCase's wall-clock budget)`. Once the budget is exhausted,
+  `BrowserTimeoutError` is raised immediately, before another Playwright
+  call is even attempted. No watchdog thread or signal is used — Playwright's
+  sync API is explicitly single-threaded, so per-call `timeout=` arguments
+  are the only safe mechanism. `browser_session()` gained a
+  `test_timeout_seconds` parameter; the deadline is computed fresh inside
+  `_executor()` at the moment each TestCase actually starts.
+- **Real gap found and fixed**: `BrowserConfig.test_timeout_seconds` was
+  defined (with a hard cap) back in the original Phase 9 pass but was never
+  actually threaded to the executor at all — `browser_session()` had no
+  such parameter. Fixed by threading it through `adapters/browser/
+  adapter.py::run()`/`BrowserAdapter.execute()`, `cli/main.py`'s
+  `_maybe_run_assess_browser()`/`_run_browser_test()`, and
+  `application/service.py::_run_browser()`.
+- `src/universal_test/core/configuration/config.py` — `BrowserConfig.
+  __post_init__` now explicitly rejects `NaN`/`+-infinity` via
+  `math.isfinite()` (previously these "happened to" clamp correctly only
+  because of how Python's `min`/`max` handle NaN comparisons — an
+  accidental, undocumented, untested correctness). `0`/negative/absurdly
+  large values still clamp to a safe bound rather than being rejected
+  outright (a config typo should degrade safely, not crash the run).
+- Verified with a real fixture: `test_timeout_seconds=2.0` +
+  `action_timeout_seconds=10.0` (generous) against
+  `tests/fixtures/browser-static-slow/` (an element that only appears
+  after a 10-second `setTimeout`) completed in **2.38s**, not ~10s —
+  confirmed by direct measurement, not just assertion.
+
+### Files changed / added
+
+- `src/universal_test/adapters/browser/executor.py` (`_remaining_ms()`,
+  threaded `deadline`/timeout caps through `_run_steps`/`_build_context`/
+  `_resolve_element_state`/`_require_single_match`, `DEFAULT_TEST_TIMEOUT_SECONDS`).
+- `src/universal_test/adapters/browser/adapter.py`,
+  `src/universal_test/cli/main.py`, `src/universal_test/application/
+  service.py` — `test_timeout_seconds` threaded end-to-end.
+- `src/universal_test/core/configuration/config.py` —
+  `_sanitize_timeout_seconds()`, `MAX_BROWSER_TEST_TIMEOUT_SECONDS`.
+- `src/universal_test/reporting/markdown_report.py`, `html_report.py`,
+  `src/universal_test/gui/static/i18n.js` (en + zh),
+  `src/universal_test/assessment/models.py` — fixed a real defect found
+  during validation: the Application Health hint text said "...driven by
+  something that actually executed (Functional/Performance)" but Browser
+  Testing joined that whitelist in the original Phase 9 pass and the text
+  was never updated.
+- `tests/fixtures/browser-static-slow/` (new) — local-only slow-element
+  fixture, no Internet dependency.
+- `tests/adapters/browser/test_timeout.py` (new, 9 tests) — pure budget-
+  arithmetic unit tests plus real-browser hard-ceiling/classification/
+  cleanup tests.
+- `tests/adapters/browser/test_cancellation.py` (new, 3 tests) —
+  `KeyboardInterrupt`-during-session regression tests (existing cleanup
+  behavior verified, not redesigned).
+- `tests/adapters/browser/test_config.py` — 5 new tests (zero/negative/
+  NaN/infinity timeout rejection, hard-cap-via-YAML-cannot-bypass).
+- `docs/BROWSER_TESTING.md` (Timeout hierarchy section, updated Known
+  Limitations), `docs/BROWSER_SAFETY.md` (Bounded timeouts section
+  rewritten), `ARCHITECTURE.md` §17.2/§17.7.
+
+### Real-project validation matrix
+
+All results below are from actually running the CLI against the named
+fixture — none fabricated.
+
+| Project | Type | Static Analysis | Browser Test | Result | Interpretation |
+|---|---|---|---|---|---|
+| A: `browser-static-basic` | Static HTML | `static_web`, detected | `browser test --target file://...` | PASS (1/1) | Page loaded, title/body verified |
+| B: `frontend-static-rich-spa` | Single-file rich SPA | `static_web`/`single_page_application`; browser APIs detected: Local storage, MediaRecorder, Microphone (getUserMedia), Speech synthesis | `assess --browser --target file://...` | Browser Testing: PASS; Application Health: PASS | Static evidence says "detected"; browser test verified page load only — mic never auto-requested |
+| C: `react-vite-vitest` | Framework frontend (React/Vite) | `framework_web` (no STATIC_WEB downgrade), `frameworks: ['React']` | `browser test --dry-run --target http://localhost:5173` | Plan generated correctly, no crash | Browser adapter plumbing works identically regardless of frontend_type |
+| D: `backend-html-template` | Backend + `templates/index.html` | `detected: False`, `frontend_type: None` | n/a | Not treated as a standalone frontend | Existing false-positive guard confirmed still correct |
+| E: `browser-static-broken` | Intentionally broken (missing element, empty title, JS runtime error) | `static_web`, detected | `assess --browser --target file://...` | Browser Testing: WARNING (1 failed); Application Health: WARNING | Understandable finding: "1 of 1 executed browser test(s) failed an assertion", classified `defect` |
+| F: unreachable `127.0.0.1:39123` | N/A (infrastructure) | n/a | `assess --browser --target http://127.0.0.1:39123/` | Browser Testing: FAIL (total transport wipeout, `net::ERR_CONNECTION_REFUSED`); Quality Gate: PASS | Explicit disclaimer: "does not by itself prove the application is defective"; Quality Gate correctly stayed policy-driven (Browser FAIL not in default `fail_on`) |
+
+### Semantic verification
+
+- PASS/FAIL/ERROR/NOT_ASSESSED confirmed distinct end-to-end (report.md,
+  CLI stdout, GUI category grid) via the matrix above plus the existing
+  46+ browser adapter tests.
+- Testability-limitation vs. defect distinction unchanged and reconfirmed:
+  `FindingClassification.EXECUTION_FAILURE` (browser infra problems) vs.
+  `DEFECT` (assertion failures) vs. `TESTABILITY_GAP` (missing test
+  tooling, a pre-existing Frontend/Testability category concern, not
+  Browser Testing's) remain three separate, never-conflated concepts.
+- Application Health / Testability / Assessment Coverage confirmed to
+  render as three separate, explained lines (not a bare `WARNING`) in a
+  real `assess` run (Project B's report).
+- No false PASS: verified no code path converts WARNING/NOT_ASSESSED/ERROR
+  into PASS anywhere in the browser pipeline (the existing
+  `execution_health_status()` rule, reused unmodified from Functional
+  Health, was the only place this could have regressed, and didn't).
+
+### Quality Gate / Regression validation
+
+- Confirmed (Project F): Browser FAIL did **not** fail the Quality Gate,
+  because Browser isn't in the default `fail_on` policy — exactly the
+  documented, policy-driven behavior. Zero Quality Gate engine changes
+  were made or needed.
+- Regression (`regression/browser_compare.py`) untouched this pass; its
+  existing 7 tests (from the original Phase 9 pass) still pass unmodified.
+
+### Windows / process cleanup verification
+
+- `tasklist` before/after the full suite and browser-test-only runs shows
+  no `ms-playwright`-path or `chrome-headless-shell` processes left behind.
+- `node --check` on `app.js`/`i18n.js` — syntactically valid.
+- No mojibake introduced (all new user-facing strings ASCII-only, per the
+  existing house rule this repo already enforces).
+
+### Known limitations (unchanged/newly documented)
+
+- A TestCase timeout does not forcibly tear down the shared browser
+  context mid-run (a run may execute several TestCases sequentially
+  against one context, by design — no concurrency, one context per run).
+  The guarantee is "no process left running once the whole run completes,"
+  not "the next TestCase in the same run gets a guaranteed-pristine page
+  after a prior one timed out." In practice the built-in smoke test is
+  always exactly one TestCase per run, so this has no observed impact.
+- No visual regression, accessibility auditing, security scanning, AI
+  test generation, or browser performance profiling — none attempted,
+  all explicitly out of scope per the hardening brief.
+
+### Full test suite result
+
+`pytest -q` → **752 passed, 0 failed, 0 skipped, 0 errors** (148.01s) —
+17 new tests over the 735 baseline (9 timeout + 3 cancellation + 5 config
+hardening), all real, none skipped.
+
+### Next phase
+
+None planned — same stop condition as Phase 9, unchanged by this
+hardening pass. Do not automatically continue to Phase 10.
+
+## Phase 10 — One-Click Web Assessment / Non-Programmer UX — ✅ Done (2026-08-12)
+
+Not a new testing engine — a guided, safe orchestration/UX layer over the
+existing capabilities so a non-programmer can run a Web Assessment without
+knowing `scan`/`assess`/`browser test` are separate commands. See
+`ARCHITECTURE.md` §18 and `SPECIFICATION.md` §4.15.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **754 passed, 0 failed, 0 skipped, 0 errors** (158.71s) —
+while establishing this, a *real* flaky-test bug was found and fixed
+first (see below), so this is the actual, reliable starting count, not
+the raw first run (which showed 1 failure caused by that bug).
+
+### Real defect found and fixed before starting
+
+- `adapters/browser/local_server.py::serve_directory()` bound an
+  OS-assigned ephemeral port (port 0) with no filtering — occasionally the
+  OS handed out a port on Chromium's own restricted-port list (this run:
+  1720, H.323 Gatekeeper Discovery), producing a flaky, confusing
+  `net::ERR_UNSAFE_PORT` failure with no obvious cause. Fixed by retrying
+  the bind (up to 10 attempts) whenever the assigned port is in
+  Chromium's known restricted-port set. Verified with a 20-iteration
+  repeat test (`test_local_server.py`) to shake out the original
+  flakiness rather than trusting one clean pass.
+
+### One-Click Web Assessment workflow
+
+- **CLI**: new `universal-test web assess <path> [--target ...] [--dry-run]
+  [--yes] [--allow-external] [--screenshots] [--baseline ...] [--ci]`
+  (`cli/main.py`). Its argparse subparser forces `browser=True` and
+  defaults out performance/database flags via `set_defaults(...)`, then
+  `_run_web_assess()` delegates straight to the *existing*
+  `_run_assess()` — the exact function the plain `assess` command already
+  uses — for all real execution. Zero duplicated discovery/execution/
+  assessment/report logic. `--dry-run` prints a human-readable plan
+  (detected type, planned checks, not-included list, and — reusing
+  `adapters/browser/adapter.py::run(dry_run=True)` +
+  `serializers.py::plan_to_text()` — the actual generated browser test
+  plan) without launching a browser, closing a real gap: `assess --browser
+  --dry-run` itself has no equivalent plan preview today (left alone,
+  since Phase 10's scope is the new command, not `assess`'s contract).
+- **GUI**: new "Web Assessment" card in `gui/static/index.html`, placed
+  above the pre-existing "Full Assessment" form (renamed with a
+  `full_assessment_title` header), not replacing it. Flow: pick project →
+  "Analyze Project & Build Plan" (calls new `POST /api/web/detect`) → plan
+  card (detected type/entry point/framework/browser APIs, planned checks,
+  not-included list, target field, external-target warning, browser
+  safety confirmation) → "Start Web Assessment" → the *same*
+  `startAssessmentRun()` helper (refactored out of the existing "Start
+  Assessment" handler so there's exactly one call site for `/api/assess`)
+  → the *same* progress/results screens the Full Assessment form already
+  used.
+- **New backend endpoint**: `gui/server.py::POST /api/web/detect` — calls
+  the existing `discover()` (read-only, no execution) and returns
+  `model.frontend.to_dict()` + framework/language names. No HTML
+  re-parsing in the GUI, no second discovery engine.
+
+### Web detection
+
+Reuses `FrontendType` (`STATIC_WEB`/`FRAMEWORK_WEB`/`FULL_STACK_WEB`/
+`UNKNOWN_WEB`) and `FrontendInfo.detected` unmodified. `detected: false`
+(e.g. `backend-html-template`) renders as "no web frontend detected, Full
+Assessment still available" — never a failure.
+
+### Safety verification (nothing weakened)
+
+- Real target still required for execution; no target → static analysis
+  only, Browser Testing `NOT_ASSESSED` (never a guessed target, never a
+  failure).
+- `--yes`/interactive confirmation still required for real browser
+  execution — verified with a non-interactive-session test asserting
+  `NOT_ASSESSED` without `--yes`.
+- `browser_confirmed` remains a separate explicit GUI checkbox from
+  `run_browser`/`chk-web-confirm`, mirroring `performance_confirmed`'s
+  established pattern — no equivalent of `--yes` is silently implied by
+  the "one-click" framing.
+- External targets still rejected without `--allow-external`/
+  `chk-web-allow-external` — verified with a real CLI test
+  (`https://example.com` without the flag → `NOT_ASSESSED`, reason
+  mentions "external"/"allow-external").
+- The GUI's external-target warning (`looksLikeLocalTarget()` in
+  `app.js`) is a client-side prefix heuristic for UX only — confirmed the
+  backend's `target_policy.py` remains the sole enforcement point
+  regardless (the heuristic being "wrong" for an edge-case URL would only
+  mis-show/hide a warning box, never bypass the actual policy check).
+
+### Result summary semantics
+
+`renderAssessmentSummary()` (pre-existing since Phase 8.5/9) already
+showed Application Health / Testability / Assessment Coverage as three
+distinct, independently explained lines at the top of the results screen.
+Added a fourth line — Browser Testing — reusing `statusBadge()`
+unmodified. No numeric score anywhere. Verified live in a real rendered
+Chromium browser (Playwright driving the actual GUI, not just an HTTP-level
+assertion): all four lines rendered correctly in Traditional Chinese with
+correct status badges (🟢/🟡) for a real `browser-static-basic` run.
+
+### A real UX bug found during non-programmer UX review and fixed
+
+Picking a *different* project folder after already analyzing one left the
+previous Web Assessment plan card visible with stale detection data for
+the old project — a user could plausibly start a run against outdated
+evidence for the wrong project. Fixed: `btn-pick-folder`'s handler now
+hides `#web-assess-plan` on every new folder selection, forcing
+re-analysis.
+
+### Files changed / added
+
+- `src/universal_test/adapters/browser/local_server.py` (Chromium
+  restricted-port retry fix).
+- `src/universal_test/cli/main.py` (`web` subcommand, `_run_web_assess()`).
+- `src/universal_test/gui/server.py` (`POST /api/web/detect`).
+- `src/universal_test/gui/static/index.html` (Web Assessment card,
+  `full_assessment_title` divider), `app.js` (`startAssessmentRun()`
+  refactor, `renderWebAssessmentPlan()`, `updateWebAssessStartState()`,
+  `looksLikeLocalTarget()`, Browser Testing summary line, stale-plan
+  reset fix), `style.css` (`.section-divider`), `i18n.js` (~30 new
+  EN+zh-TW key pairs).
+- `tests/adapters/browser/test_local_server.py` (new, 2 tests).
+- `tests/gui/test_gui_web_assessment.py` (new, 7 tests — real Chromium
+  execution through the preset).
+- `tests/gui/test_i18n_parity.py` (new, 3 tests — Node-driven EN/zh-TW
+  key-set parity, no missing/empty translations).
+- `tests/cli/test_cli_web_assess_command.py` (new, 7 tests — dry-run,
+  real execution, no-confirmation, external-target rejection, broken
+  frontend, unreachable target).
+- `ARCHITECTURE.md` §18, `SPECIFICATION.md` §4.15, `ROADMAP.md`,
+  `README.md`, `README.zh-TW.md`, `CHANGELOG.md`.
+
+### Real-project validation matrix
+
+All results below are from actually running the real CLI (`web assess`)
+and, for A/C/D, the real GUI (`/api/web/detect` + a live Chromium-driven
+click-through) — none fabricated.
+
+| Project | Type | Web Detection | Assessment Plan | Browser Test | Result | User Meaning |
+|---|---|---|---|---|---|---|
+| A: `browser-static-basic` | Static HTML | `static_web`, detected | Shown (structure/static/browser-smoke checks; login/perms/visual/security/a11y excluded) | `web assess --target file://... --yes` | Browser Testing: PASS; confirmed live in a real rendered Chromium browser via Playwright | Page loaded, title/body verified |
+| B: `frontend-static-rich-spa` | Single-file rich SPA (getUserMedia/MediaRecorder/SpeechSynthesis/localStorage) | `static_web`/SPA pattern, detected | Shown | `web assess --target file://... --yes` | Browser Testing: PASS | Static evidence says "detected"; browser test verified page load only — mic never auto-requested |
+| C: `react-vite-vitest` | Framework frontend (React/Vite) | `framework_web` (no STATIC_WEB downgrade), `frameworks: ['React']` | `web assess --target http://localhost:5173 --dry-run` | Plan generated correctly, no crash | Browser adapter plumbing identical regardless of frontend_type |
+| D: `backend-html-template` | Backend + `templates/index.html` | `detected: False` | `web assess --dry-run` (no target) shows "Browser page-load smoke test: SKIPPED" | n/a | Not treated as a standalone frontend or a failure |
+| E: `browser-static-broken` | Intentionally broken | `static_web`, detected | Shown | `web assess --target file://... --yes` | Browser Testing: WARNING (1 failed), Application Health: WARNING, `BROWSER-FAILED` classified `defect` | Understandable finding text |
+| F: unreachable `127.0.0.1:39125` | N/A (infrastructure) | n/a | `web assess --target http://127.0.0.1:39125/ --yes` | Browser Testing: FAIL (`net::ERR_CONNECTION_REFUSED`), Quality Gate stayed PASS | Explicit "does not by itself prove the application is defective" disclaimer |
+
+### Known limitations
+
+- `web assess`'s REST functional testing is not explicitly suppressed
+  (matches `assess`'s own default behavior) — it naturally no-ops for
+  projects with no OpenAPI spec (the common case for a pure web project),
+  but a full-stack project with both an API spec and a frontend will also
+  see REST functional tests run as part of `web assess`, which is a
+  reasonable but not explicitly spec'd inclusion.
+- No Web Test Scenario/Workflow authoring UI, no AI-generated tests, no
+  visual regression, no accessibility/security scanning, no browser
+  performance profiling — all explicitly out of scope per the phase
+  brief, none attempted.
+
+### Full test suite result
+
+`pytest -q` → **771 passed, 0 failed, 0 skipped, 0 errors** (167.16s) —
+17 new tests over the 754 baseline (7 GUI web-assessment + 7 CLI web-assess
++ 3 i18n parity), all real, none skipped.
+
+### Next phase
+
+None planned — hard stop per the phase brief. Do not automatically
+continue to a "Phase 10.1" or Phase 11 (Web Test Scenario/Workflow
+authoring, AI-generated tests, visual regression, accessibility/security
+scanning, distributed/cloud browser testing remain unimplemented and
+out of scope without explicit go-ahead).
+
+## Phase 11 — Web Test Scenario / Workflow Testing — ✅ Done (2026-08-13)
+
+An explicit, user-authored, repeatable multi-step Web workflow layer —
+not a new test engine — sitting entirely on top of the existing Browser
+Adapter. See `ARCHITECTURE.md` §19 and `docs/WEB_SCENARIOS.md`.
+
+### Baseline (recorded before any change)
+
+`pytest -q` → **771 passed, 0 failed, 0 skipped, 0 errors** (168.87s).
+
+### Architecture
+
+`ScenarioRunner` synthesizes one `TestCase` per step (one action OR one
+assertion, never both) and runs it via the unmodified `TestEngine.run()` —
+the same Core entry point Phase 9's single-TestCase smoke test already
+uses. `ScenarioRunner`'s only real addition is sequencing: a loop that
+stops at the first non-PASS step (spec §21), sharing one live browser
+context for the whole scenario. Every action reuses `ALLOWED_ACTIONS`;
+every `assert_*` step maps 1:1 onto an existing browser assertion type
+(`ASSERT_ACTION_MAP`) — no second assertion vocabulary, no second
+Playwright execution path, no second timeout system.
+
+### Real defects found and fixed while building this
+
+- **Relative-URL navigation was never resolved against the target
+  origin.** `executor.py::_run_steps()`'s `navigate` handler passed a
+  relative `value` (e.g. `"login.html"`) straight to `page.goto()` and
+  the same-origin check — harmless in Phase 9/10 (the smoke test always
+  navigates to the full target itself) but broke immediately once a real
+  scenario used a relative URL, which spec §41 explicitly prefers for
+  portability. Fixed with one `urljoin(target, value)` in the shared
+  step-execution code, benefiting any future browser test definition.
+- **`browser scenario run --yes` was a no-op flag.** The first working
+  draft added `--yes` to the argparse surface but never gated real
+  execution on it — a scenario run would have silently bypassed the
+  confirmation requirement `browser test`/`web assess` both correctly
+  enforce. Fixed by mirroring `_maybe_run_assess_browser()`'s exact
+  confirmation-gate shape (plan preview, `--yes` or interactive
+  `Proceed? [y/N]`, hard refusal in a non-interactive session with
+  neither).
+- **A pre-existing, older latent bug surfaced while testing the fix
+  above**: `input()` can raise `EOFError` with a raw traceback (rather
+  than a clean refusal) when stdin is redirected in certain Windows/
+  subprocess configurations, even when `sys.stdin.isatty()` reported
+  `True`. This affected *all four* of the CLI's confirmation prompts
+  (performance / browser test / web assess / scenario run), not just the
+  new one. Fixed once, centrally, via a new `_confirm()` helper all four
+  call sites now share.
+- **`BrowserTargetError` was uncaught in `run_scenario()`.** Only
+  `BrowserUnavailableError` was caught around `browser_session()`'s
+  entry; an external target without `--allow-external` raised
+  `BrowserTargetError` from `validate_target()` and crashed instead of
+  producing a graceful `NOT_ASSESSED` `ScenarioResult`. Fixed by catching
+  it alongside `BrowserUnavailableError`, mirroring
+  `adapters/browser/adapter.py::run()`'s existing `no_target_reason`
+  pattern.
+- **The mission's own YAML example (`name: Login` on a `role` selector)
+  didn't match the existing `BrowserSelector` schema (`value`).** Rather
+  than diverge from the existing, shared selector model (Phase 9) or
+  force scenario authors to use an unintuitive field name, added a small,
+  scenario-layer-only alias (`name` → `value`, `role` selectors only) in
+  `scenario_models.py::_parse_selector()` — Core's `BrowserSelector`
+  itself is untouched.
+
+### Scenario model / file format
+
+`adapters/browser/scenario_models.py` (`WebScenario`, `ScenarioStep`,
+`ScenarioCollection` — plain dataclasses, fully serializable, no
+Playwright objects), loaded from a dedicated YAML file (default
+`universal-test-web.yaml`, not forced into the main config, per spec
+§12's own guidance). `adapters/browser/scenario_loader.py`: offline
+validation (missing/duplicate ids, unknown actions, missing required
+parameters, invalid selectors, malformed `value_env` references,
+out-of-range timeouts) that never triggers browser execution.
+
+### Secret handling
+
+`value_env` (an environment-variable *reference*) is the only normal
+mechanism for a credential-shaped value. Resolved only inside
+`run_scenario()`, immediately before use, never during `list`/
+`validate`/`--dry-run`. `ScenarioStep.public_dict()` never includes a
+`value` field when `value_env` is set — reports/GUI responses show the
+env-var *name*, never the resolved value. Verified with a dedicated test
+(`test_scenario_step_never_leaks_secret_value_in_result`) that greps the
+full `ScenarioResult.to_dict()` dump for the actual secret string.
+
+### Timeout hierarchy
+
+`Run > Scenario > Step`, each child capped to the remaining parent
+budget. Implemented via one additive parameter on the *existing* Phase 9
+Hardening per-TestCase timeout mechanism
+(`executor.py`'s `test_timeout_seconds_override`, read once per call,
+defaulting to unchanged behavior for every pre-Phase-11 caller) — no
+second timeout system. Verified by direct measurement: a scenario
+`timeout_seconds=2.0` with a step's own `timeout_seconds=10.0` still
+completed in well under 6s (real fixture: an element that only appears
+after Fixture's `#never-appears` never resolves).
+
+### Execution model
+
+Steps run strictly in order sharing one browser page. The first step that
+doesn't PASS stops the scenario — every step after it is recorded
+`SKIPPED`. Verified with a real fixture (wrong password → `assert_visible
+Dashboard` FAILs → the next `assert_title` step is correctly `SKIPPED`,
+never executed).
+
+### CLI / GUI / Assessment / Regression / Reporting
+
+- `universal-test browser scenario list/validate/run` (nested under
+  `browser`, matching the `browser install`/`browser test` precedent),
+  plus an opt-in, repeatable `--scenario <id>` on `assess`/
+  `baseline save`/`baseline compare`.
+- GUI "Web Scenarios" card: `POST /api/web/scenarios` (read-only list),
+  `POST /api/web/scenario/run` (synchronous — a scenario run is one
+  bounded, hard-timeout-capped operation, not `/api/assess`'s
+  multi-stage pipeline, so it deliberately skips `RunRegistry`/SSE, but
+  still requires the same explicit `confirmed: true` and calls the exact
+  same `run_scenario()` the CLI uses). Verified with a real Playwright-
+  driven click-through of the actual rendered GUI (list → select →
+  target → confirm → run → PASS), not just HTTP-level assertions.
+- `assessment/scenario_assessment.py`: eleventh "Web Scenarios" category,
+  added to `_EXECUTION_DRIVEN_CATEGORY_NAMES` alongside Browser Testing.
+- `regression/scenario_compare.py`: per-scenario-ID PASS/FAIL/ERROR
+  comparison, mirrors `browser_compare.py` file-for-file, stable
+  scenario `id` as identity (verified: renaming isn't required — the
+  same id compared across two runs is correctly recognized regardless of
+  which steps inside it changed).
+- `reporting/{json,markdown,html}_report.py`: "Web Scenarios" section.
+  Quality Gate needed zero engine changes (data-driven policy, automatic).
+
+### Files changed / added
+
+- `src/universal_test/adapters/browser/executor.py` (relative-URL
+  `navigate` fix, `test_timeout_seconds_override`).
+- `src/universal_test/adapters/browser/scenario_models.py`,
+  `scenario_loader.py`, `scenario_runner.py`, `scenario_serializers.py`
+  (all new).
+- `src/universal_test/cli/main.py` (`browser scenario` subcommands,
+  `--scenario`/`--scenario-file` on the shared pipeline args,
+  `_maybe_run_assess_scenario()`, new shared `_confirm()` helper).
+- `src/universal_test/assessment/scenario_assessment.py` (new),
+  `assessment/engine.py`, `assessment/rules.py`.
+- `src/universal_test/regression/scenario_compare.py` (new),
+  `regression/models.py`, `regression/engine.py`, `regression/snapshot.py`.
+- `src/universal_test/reporting/report_bundle.py`, `json_report.py`,
+  `markdown_report.py`, `html_report.py`.
+- `src/universal_test/gui/server.py` (`/api/web/scenarios`,
+  `/api/web/scenario/run`), `gui/static/index.html` (Web Scenarios card),
+  `app.js` (list/select/dry-run/run wiring), `i18n.js` (~15 new EN+zh-TW
+  key pairs).
+- `tests/fixtures/browser-scenario-app/` (new) — deterministic Home/
+  Login/Dashboard/Search fixture, no external dependencies.
+- `tests/adapters/browser/test_scenario_model.py` (7),
+  `test_scenario_loader.py` (26), `test_scenario_runner.py` (9, real
+  browser execution) — all new.
+- `tests/cli/test_cli_web_assess_command.py` unaffected;
+  `tests/regression/test_scenario_compare.py` (7, new).
+- `tests/gui/test_gui_web_scenarios.py` (8, new, real browser execution).
+
+### Real-project validation matrix
+
+| Scenario | Project | Type | Steps | Result | Interpretation |
+|---|---|---|---:|---|---|
+| Login (correct credentials) | `browser-scenario-app` | Local fixture SPA-style flow | 5 | PASS (5/5) | Verified via CLI and a real Playwright-driven GUI click-through |
+| Search | `browser-scenario-app` | Local fixture | 5 | PASS (5/5) | `assert_text`/`assert_count` against dynamic JS-rendered results |
+| Login (wrong password) | `browser-scenario-app` | Intentionally broken | 5 | FAIL (4 passed, 1 failed) | `dashboard` assertion FAILs; understandable message; `never-runs` step correctly SKIPPED |
+| Unreachable target | `127.0.0.1:39141` | Infrastructure | 5 | ERROR (0 passed, 1 error, 4 skipped) | `net::ERR_CONNECTION_REFUSED`; never reported as an application defect |
+| Timeout | `browser-scenario-app` (`#never-appears`) | Local fixture, `timeout_seconds=2.0` vs. step `timeout_seconds=10.0` | 2 | ERROR, elapsed < 6s | Hard ceiling confirmed by direct measurement, not just an assertion |
+
+### Windows / process cleanup verification
+
+- `tasklist` after the full suite and every scenario-specific run shows
+  no `ms-playwright`-path or `chrome-headless-shell` processes left
+  behind.
+- `node --check` on `app.js`/`i18n.js` — syntactically valid.
+- No mojibake introduced; all new user-facing strings pass through the
+  existing ASCII-safe/ redaction conventions.
+
+### Known limitations
+
+- `web assess` (Phase 10's guided command) does not itself expose
+  `--scenario` on its own narrower argparse surface (the plain `assess`
+  command does) — a deliberate scope decision, not a bug; `getattr`
+  defaults make this safe either way.
+- No scenario-level parallel/concurrent execution (unchanged from Phase
+  9's "no concurrency" design, deliberately not revisited).
+- No Web Test Scenario *authoring UI* (a GUI form to build a scenario
+  file) — scenarios remain YAML-authored by hand, per spec scope.
+
+### Full test suite result
+
+`pytest -q` → **829 passed, 0 failed, 0 skipped, 0 errors** (182.74s) —
+58 new tests over the 771 baseline, all real, none skipped.
+
+### Next phase
+
+Hard stop per the phase brief. The only permitted next step without
+further instruction is Phase 12 — Final Web QA / Freeze (a validation-and-
+freeze pass, not a new feature-development phase). Do not automatically
+start AI-generated tests, an AI browser agent, visual regression,
+accessibility/security scanning, browser performance profiling, or
+mobile/cloud/distributed browser testing.
+
+## Phase 12 — Final Web QA / Freeze (2026-08-13)
+
+Not a feature-development phase — a validation-and-freeze pass over
+Phases 9-11's Web capabilities. Baseline confirmed first via an actual
+`python -m pytest -q` run (829 passed, matching the number Phase 11
+claimed, not merely trusted) before any other work began.
+
+### Audits performed
+
+- **Architecture boundary audit**: confirmed `core/`, `assessment/`,
+  `regression/`, `quality_gate/`, `reporting/` contain zero references to
+  `playwright`/`browser_session`/`TestEngine`/`Orchestrator`/`run_scenario`
+  (grep-verified); confirmed `scenario_models.py` has no Playwright
+  objects (`Page`/`BrowserContext`/`Locator`); confirmed the only two
+  `"playwright"` string hits outside `adapters/browser/` are the explicit
+  `browser install` subprocess invocation and a static test-framework-
+  detection string match, neither an import; confirmed every
+  `adapters/browser/*.py` file lazily imports Playwright inside a
+  function, never at module level.
+- **Dry-run / secret / external-target safety audit**: verified
+  `--dry-run` never opens a socket (monkeypatched `socket.connect`) even
+  with secrets unset; verified `validate_target()` cannot be bypassed
+  through the full `assess --scenario` pipeline; verified password- and
+  connection-string-shaped values stay redacted across
+  stdout/stderr/JSON/Markdown/HTML.
+- **Status semantics + report consistency audit**: ran real
+  browser+scenario assessments and diffed `report.json` against
+  `report.md` for the same run — confirmed identical category statuses
+  (e.g. a scenario-FAIL run produced `Web Scenarios: warning` in both
+  formats, never `PASS` in one and something else in the other); confirmed
+  the `Application Health: PASS` + `Assessment Coverage: PARTIAL`
+  combination the spec calls out as valid renders exactly that way, with
+  no fabricated `PASS` anywhere a category was actually `NOT_ASSESSED`.
+- **Dead code / duplication audit**: `pyflakes` over
+  `adapters/browser/`, `assessment/`, `regression/`, `reporting/`,
+  `application/` found exactly two real issues, both fixed: an unused
+  `ASSERT_ACTION_MAP` import in `scenario_loader.py`, and an f-string
+  with no placeholder (`f"# Browser Test Run"`) in `serializers.py`. No
+  duplicate selector/assertion/timeout/redaction implementation found —
+  each exists exactly once.
+- **Real-project + scenario validation matrix**: see table below.
+- **Real-browser GUI walkthrough**: a fresh Playwright (headless
+  Chromium) script drove the actual GUI end-to-end — welcome screen →
+  project pick → Web detect → plan → safety checkbox gating → Web
+  Scenarios list → select (radio input) → dry-run → duplicate-click
+  protection → real scenario execution → result → project switch (stale-
+  state check) → full Web Assessment run → results screen
+  Health/Testability/Coverage. All 20 assertions passed; zero browser
+  console errors. One false alarm during this audit is worth recording:
+  Chinese UI text initially appeared as mojibake in the *test harness's*
+  own terminal output — this was the harness process's `cp950` stdout
+  encoding, not a GUI bug; writing the same text to a UTF-8 file and
+  reading it back confirmed the GUI itself renders correct
+  `偵測到的類型: 靜態網站` etc. Duplicate-run protection was verified
+  behaviorally, not just by reading the code: the Run button disables
+  synchronously on the first click (`scenarioState.running` guard) and
+  exactly one `/api/web/scenario/run` request fires even when a second
+  click is attempted immediately.
+- **Regression + Quality Gate matrix**: a real `baseline save` (scenario
+  PASS) → `baseline compare` (same scenario, wrong password → FAIL)
+  cycle produced a `SCENARIO-REGR-pass-case` regression finding
+  ("pass-case regressed: pass -> fail") with the scenario id preserved
+  as stable identity; the reverse cycle (baseline FAIL → current PASS)
+  correctly counted "1 improved" with zero regression findings and an
+  overall `PASS`. Quality Gate confirmed genuinely policy-driven: with
+  the *default* policy, a scenario ERROR run still exits `0`/`PASS`
+  (browser/scenario categories are not gated unless explicitly opted in,
+  per spec); with an explicit `fail_on: {assessment: [fail]}` policy
+  added via `--config`, the same ERROR run correctly exits `1`/`FAIL`.
+
+### Bugs found and fixed
+
+1. **Packaged Windows `.exe` never configured logging/redaction.**
+   `release/windows/launch_gui.py` calls `gui/launcher.py::launch()`
+   directly and never goes through `cli/main.py::main()`'s
+   `configure_logging()` call — the packaged exe's logger had zero
+   handlers and no `RedactingFormatter`, so a server-side unhandled
+   exception logged via `gui/server.py::_internal_error()` could write an
+   unredacted secret to the log file (the opaque `error_id` returned to
+   the browser was never affected — only the server-side log record).
+   Fixed by calling `configure_logging()` (idempotent) at the top of
+   `launch()`. Added
+   `test_launch_configures_redacting_log_formatter_without_the_cli` to
+   `tests/gui/test_gui_launcher.py`, which strips the logger's handlers
+   before calling `launch()` and asserts a `RedactingFormatter` gets
+   attached anyway.
+2. Two minor dead-code items (see Dead code audit above) — not bugs, but
+   removed for clarity.
+
+### Real-project validation matrix
+
+| Capability | Static HTML | SPA | React/Vite | Backend+Templates | Broken Web | Unreachable target |
+|---|---|---|---|---|---|---|
+| Web Detection | detected (static_web) | detected | detected | detected | detected | detected (target unrelated to detection) |
+| Static Analysis | WARNING (secret pattern) | WARNING | PASS | NOT_ASSESSED (no frontend signals) | WARNING | WARNING |
+| Browser Test | PASS | NOT_ASSESSED (no target given) | NOT_ASSESSED (no target given) | NOT_ASSESSED (no target given) | WARNING (1 assertion FAIL, classification=defect) | FAIL (1 error, classification=execution_failure) |
+| Assessment | consistent across all categories | consistent | consistent | consistent | consistent (FAIL correctly distinguished from WARNING) | consistent (FAIL correctly not blamed on the app) |
+| Report (JSON/MD/HTML) | agree | agree | agree | agree | agree | agree |
+
+### Scenario validation matrix (A-E)
+
+| Case | Status | Notes |
+|---|---|---|
+| PASS (correct credentials) | `pass` | 5/5 steps |
+| FAIL (wrong password) | `fail` | assertion failure, exit 1 |
+| ERROR (missing selector) | `error` | exit 1, execution_failure classification |
+| TIMEOUT (1s scenario budget vs. a hanging step) | `error` | same ERROR bucket as infrastructure failures, by design |
+| SECRET (real secret value flows through a failing assertion) | `fail` | zero leakage of the secret value across stdout/stderr in any of the five runs |
+
+### Files changed
+
+- `src/universal_test/gui/launcher.py` (bug fix, see above).
+- `tests/gui/test_gui_launcher.py` (regression test, +1).
+- `src/universal_test/adapters/browser/scenario_loader.py` (unused
+  import removed).
+- `src/universal_test/adapters/browser/serializers.py` (f-string
+  placeholder fix).
+- `src/universal_test/gui/static/app.js` (two redundant identity-
+  function ternaries in `renderScenarioResult()` simplified — zero
+  behavior change, verified with `node --check`).
+- `docs/WEB_CAPABILITY_FREEZE.md` (new).
+- `ROADMAP.md`, `PROGRESS.md`, `CHANGELOG.md` (this phase's entries).
+
+### Known limitations
+
+Unchanged from Phases 9-11 — see `docs/WEB_CAPABILITY_FREEZE.md`'s Known
+Limitations section for the authoritative, current list.
+
+### Full test suite result
+
+`python -m pytest -q` → **830 passed, 0 failed, 0 skipped, 0 errors**
+(181.76s) — 1 new test (the GUI launcher regression test) over the 829
+baseline; no test was disabled or skipped to reach this number.
+
+### Final Web Capability Status
+
+**Web capability is frozen after Phase 12.** See
+`docs/WEB_CAPABILITY_FREEZE.md` for the complete Included/Explicitly-Not-
+Included statement. No defects beyond the one described above were found
+across architecture, safety, status-semantics, GUI, regression, or
+quality-gate verification.
+
+### Next phase
+
+Absolute stop per the phase brief. No "Phase 12.1", no "Phase 13 Web
+follow-up". Any future AI-assisted testing, visual regression,
+accessibility/security scanning, or mobile/cloud/distributed browser
+testing request is new, separately-scoped product work — it does not
+reopen this phase.

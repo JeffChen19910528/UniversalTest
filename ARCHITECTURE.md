@@ -39,7 +39,7 @@ Technology-specific code lives only under `adapters/`.
 | Concurrency engine (Phase 4 — added, no new dependency) | stdlib `concurrent.futures.ThreadPoolExecutor` + `threading.Event` (cancellation) + `queue.SimpleQueue` (thread-safe result collection) | I/O-bound HTTP requests are exactly `ThreadPoolExecutor`'s designed use case; `max_workers=N` gives correct bounded concurrency without hand-rolled semaphores. `asyncio` was considered and rejected: it would require an async REST executor variant (and async httpx client) purely to look more "modern," with no behavioral benefit at Phase 4's scale — the brief itself prioritizes correctness/boundedness over performance theater (§8/§19). |
 | Interval timing (Phase 4 — added, no new dependency) | stdlib `time.perf_counter()` | Not `time.monotonic()` — see ARCHITECTURE.md §8.4/§11.12 for the real resolution bug this avoided on this Windows Python build. |
 | HTML templating (Phase 5+) | `Jinja2` (not yet added) | Deferred until the HTML reporter is built. |
-| Browser adapter (Phase 7) | Playwright (not yet added) | Explicitly preferred by `skill.md` §15. |
+| Browser adapter (Phase 9 — implemented) | Playwright (`playwright>=1.40`, optional `[browser]` extra) | Explicitly preferred by `skill.md` §15. Base install works with zero of it installed (`adapters/browser/executor.py` imports it lazily inside a function, never at module scope); missing install/binary degrades to `NOT_ASSESSED`, never an `ImportError` elsewhere. See §17. |
 
 Dependencies are added only when the phase that needs them starts (`skill.md` §25,
 §31.18 — evaluate whether an existing dependency already covers the need before
@@ -2132,3 +2132,422 @@ change (it already forwards `assessment.to_dict()` whole); `app.js` gained
 a `renderAssessmentSummary()` block and a classification badge per
 finding, both additive to the existing generic category-grid/finding-list
 rendering, not a redesign.
+
+## 17. Browser / Web UI Functional Testing Adapter (`adapters/browser/`, Phase 9 — implemented)
+
+The capability §16 explicitly reserved: real, bounded, explicitly-authorized
+browser execution, built on top of §16's `FrontendInfo` discovery evidence
+without duplicating any of it.
+
+### 17.1 Reuse, not a second engine
+
+No new test engine, assertion framework, or report format was created.
+`adapters/browser/executor.py::browser_session()` yields an `Executor`
+(`Callable[[TestCase], dict]`) matching `core/engine/test_engine.py`'s
+existing contract exactly — `TestEngine.run(test_case, executor)` already
+turns any executor exception into `ResultStatus.ERROR` and a test case with
+no assertions into `ResultStatus.UNKNOWN`, so no Core change was needed to
+get correct failure classification. `Orchestrator.run_test_cases()` runs
+browser `TestCase`s completely unmodified. Browser-specific assertion
+evaluators (`adapters/browser/assertions.py`: `visible`, `text_contains`,
+`url_equals`, `page_title`, `element_count`, `attribute_equals`,
+`input_value`, `checked`/`enabled`/`disabled`, `console_summary`) are
+registered onto a dedicated `AssertionEngine(register_builtins=False)`
+instance built inside `adapter.py`, never the shared REST/DB default
+registry, so assertion-type vocabularies never leak between adapters.
+
+`TestCase.target.extra["steps"]` (the existing `TestTarget.extra: dict`
+escape hatch) carries the ordered action list (`navigate`/`click`/`fill`/
+`select`/`check`/`uncheck`/`press`/`wait_for`) — no new Core model was
+needed; `adapters/browser/models.py::BrowserStep`/`BrowserSelector` are
+typed builders for that same dict shape.
+
+### 17.2 Safety boundaries, each backed by a specific module
+
+- **Optional dependency**: `playwright>=1.40` lives in
+  `[project.optional-dependencies].browser`; `adapters/browser/executor.py`
+  imports it lazily inside `_import_playwright()`, never at module scope —
+  the whole package (including `adapter.py`, used unconditionally by
+  `assess`'s wiring) imports cleanly with zero Playwright installed.
+  Missing Playwright/browser binary raises `BrowserUnavailableError`,
+  caught in `adapter.py::run()` *before* `Orchestrator` is ever invoked,
+  and reported as `not_assessed_reason` — never `ResultStatus.ERROR`,
+  mirroring `DatabaseDriverUnavailableError`'s precedent exactly.
+- **Explicit target / target policy**: `adapters/browser/target_policy.py::
+  validate_target()` is a pure function (no Playwright import) allowing
+  `localhost`/`127.0.0.1`/`::1`/`file://` by default; anything else raises
+  `BrowserTargetError` unless `allow_external=True`. Called once in
+  `adapter.py::run()` before any browser launches, and again defensively
+  inside `browser_session()`.
+- **No credential guessing**: the adapter has no login/auth flow at all in
+  this version — only env-var-based auth plumbing exists elsewhere in the
+  codebase (REST); nothing here reads `.env`, tries default passwords, or
+  auto-submits a form it detects.
+- **Fresh isolation per run**: `browser_session()` launches exactly one
+  `browser.new_context()` per run (fresh cookies/storage/cache), never
+  reused across runs; no permission (`microphone`/`camera`/`geolocation`/
+  `notifications`/`clipboard`) is ever granted — there is no
+  `context.grant_permissions()` call anywhere in this adapter.
+- **No arbitrary JS execution**: `_locate()`/`_run_steps()` in
+  `executor.py` only ever call named Playwright locator/action methods for
+  the fixed `ALLOWED_ACTIONS` set (`adapters/browser/models.py`) — no
+  `page.evaluate(...)` exposed as a user action.
+- **Bounded timeouts, hard-capped independent of config**:
+  `core/configuration/config.py::BrowserConfig.__post_init__` clamps
+  `navigation_timeout_seconds`/`action_timeout_seconds` to
+  `MAX_BROWSER_TIMEOUT_SECONDS` (120s) and `test_timeout_seconds` to 5x
+  that, the same "hard ceiling regardless of what a project configures"
+  pattern `CiConfig.retry.count` already established; `NaN`/`+-infinity`
+  are explicitly rejected (fall back to the safe default), not merely
+  "happened to" clamp via Python's NaN-comparison quirks (Phase 9
+  hardening pass fix — see §17.7).
+- **TestCase wall-clock timeout is a true hard ceiling, not the sum of
+  step timeouts** (Phase 9 hardening pass, §17.7): `executor.py::
+  _remaining_ms()` is the single choke point every blocking Playwright
+  call in a TestCase goes through — it computes `min(that call's own
+  configured timeout, time left in the TestCase budget)` and raises
+  `BrowserTimeoutError` outright, before issuing another Playwright call,
+  once the budget is exhausted. No watchdog thread/signal is used
+  (Playwright's sync API is explicitly single-threaded); per-call
+  `timeout=` arguments are the only safe mechanism.
+- **Redaction reuse**: `adapters/browser/redaction.py` calls
+  `core/redaction.py`'s existing `redact()`/`redact_mapping()` — no second
+  redaction system. `executor.py`'s `_executor()` closure calls
+  `redact_context()` on the full context dict (console messages, network
+  failure reasons, resolved element attributes/values) before it is ever
+  handed to the AssertionEngine or turned into `Evidence`.
+  `localStorage`/`sessionStorage`/cookies/IndexedDB are never read into
+  the context dict in the first place — nothing to redact because it's
+  never collected.
+- **Process cleanup**: `browser_session()` is a `contextlib.contextmanager`
+  with `finally` at every layer (page listeners → context.close() →
+  browser.close() → playwright.stop()), so an assertion exception, a
+  raised `Browser*Error`, a timeout, or a `KeyboardInterrupt` unwinding
+  through the `with` block all still close everything.
+
+### 17.3 Failure classification
+
+`adapters/browser/errors.py` defines `BrowserUnavailableError`/
+`BrowserTargetError`/`BrowserTimeoutError`/`BrowserSelectorError`/
+`BrowserPermissionRequiredError`/`BrowserNetworkError`, each subclassing an
+existing `core/errors.py` type (`AdapterError`/`TargetError`/
+`RequestTimeoutError`/`ExecutionError`/`NetworkError`) so `TestEngine`'s
+already-correct generic `except Exception -> ResultStatus.ERROR` path
+handles all of them without any Core change — only `BrowserUnavailableError`
+is special-cased (caught one layer up, in `adapter.py`, before
+`Orchestrator` ever runs) since "browser missing" must read as
+`NOT_ASSESSED`, not `ERROR`.
+
+### 17.4 Assessment / Reporting / Quality Gate / Regression integration
+
+- `assessment/browser_assessment.py::assess_browser_health()` is the tenth
+  category `assessment/engine.py::build_assessment()` aggregates, added to
+  `assessment/rules.py::_EXECUTION_DRIVEN_CATEGORY_NAMES` alongside
+  `Functional Health`/`Performance` (Browser Testing is real execution
+  evidence too, so it can legitimately drag `application_health` to
+  `WARNING`/`FAIL` — every other category structurally cannot).
+- `reporting/report_bundle.py::AssessReportBundle` gained a
+  `browser_result` field; `json_report.py`/`markdown_report.py`/
+  `html_report.py` each render the three states (`NOT ASSESSED` / `PASS`
+  with target+browser+counts / a status with an execution-failure
+  disclaimer) as an additive "Browser Testing" section, and the
+  pre-existing hard-coded "browser automation adapter is not enabled"
+  string in the Frontend section (§16) was replaced with a pointer to the
+  real category status.
+- Quality Gate (`quality_gate/engine.py`) needed **zero** changes — a
+  "Browser Testing" `AssessmentCategory.status` flows through the existing
+  `QualityGatePolicy.fail_on`/`warn_on` data-driven mechanism automatically;
+  it is not in the default policy, so `NOT_ASSESSED` never fails CI
+  without explicit opt-in.
+- `regression/browser_compare.py` mirrors `functional_compare.py`
+  file-for-file (per-test-ID PASS→FAIL/ERROR identity comparison, no
+  numeric score); `regression/models.py::BaselineSnapshot` gained an
+  optional `browser: BrowserSnapshot | None = None` field (defaulted so
+  pre-Phase-9 baseline JSON files still load via `from_dict`), wired into
+  `regression/snapshot.py::build_snapshot()` and `regression/engine.py::
+  compare()`'s existing comparator list.
+
+### 17.5 CLI / Application Service Layer / GUI
+
+- New `universal-test browser install [--engine chromium|firefox|webkit]`
+  (thin wrapper around `python -m playwright install <engine>` —
+  explicit, never automatic) and `universal-test browser test <project>
+  --target <url> [--allow-external] [--screenshots] [--dry-run] [--yes]`,
+  following the CLI's existing nested-subparser pattern
+  (`cli/main.py`, same shape as `baseline save`/`baseline compare`).
+- `assess`/`baseline save`/`baseline compare` gained `--browser`/
+  `--allow-external`/`--screenshots` (via `_add_pipeline_args`, shared by
+  all three); `cli/main.py::_maybe_run_assess_browser()` mirrors
+  `_maybe_run_assess_performance()`'s exact confirmation-gate shape
+  (prints the target/safety text, requires `--yes` outside an interactive
+  TTY) — browser testing only ever runs when `--browser` AND `--target`
+  AND (`--yes` or an interactive "Continue? [y/N]") are all satisfied.
+- `application/service.py::AssessmentRequest` gained
+  `run_browser`/`browser_confirmed`/`browser_target`/
+  `browser_allow_external`/`browser_screenshots`; `browser_confirmed` is
+  the GUI's explicit checkbox confirmation, the same shape
+  `performance_confirmed` already established (no equivalent of `--yes` is
+  ever silently implied by the GUI itself). `_run_browser()` mirrors
+  `_run_performance()`; a new `STAGE_BROWSER_TEST` progress stage was added
+  to `application/events.py`.
+- The GUI reuses the existing single `/api/assess` pipeline rather than
+  adding parallel `/api/browser/*` endpoints — browser testing is exposed
+  as one more opt-in checkbox (`chk-browser` + `browser-confirm-box`) in
+  `gui/static/index.html`, exactly like the pre-existing performance/
+  database checkboxes, and its result renders automatically through the
+  already-generic `category-grid` loop in `app.js` (no per-category
+  special-casing needed, `assessment.categories` just gained one more
+  entry). This was a deliberate scope decision: it reuses a
+  battle-tested, already-tested pipeline instead of duplicating run
+  tracking/SSE-streaming/error-sanitization for a second endpoint.
+
+### 17.6 What remains out of scope (unchanged from the brief)
+
+AI-generated test plans, visual regression, accessibility auditing,
+security scanning, distributed/cloud browser providers, automatic project
+server startup, arbitrary JavaScript execution as a user action, and
+automatic credential discovery/guessing are all still explicitly out of
+scope — nothing in this phase's implementation introduces any of them.
+
+### 17.7 Hardening / Real-Project Validation pass
+
+A follow-up pass on the same architecture — no redesign, one real defect
+fixed, one real gap closed:
+
+- **TestCase wall-clock timeout**, closing the known limitation the
+  original Phase 9 report explicitly flagged ("bounded by the sum of step
+  timeouts, not a single hard ceiling"). Implemented via `_remaining_ms()`
+  in `executor.py` (see §17.2 above) — verified with a real fixture
+  (`tests/fixtures/browser-static-slow/`, a page whose `#ready` element
+  only appears after a 10-second `setTimeout`) where `test_timeout_seconds=2`
+  with a generous `action_timeout_seconds=10` still completes in ~2.4s,
+  not ~10s.
+- **`BrowserConfig.test_timeout_seconds` was defined but never actually
+  wired to the executor** — a real gap the hardening pass found:
+  `browser_session()` had no `test_timeout_seconds` parameter at all.
+  Fixed by threading it through `browser_session()` → `adapter.py::run()`/
+  `BrowserAdapter.execute()` → `cli/main.py`/`application/service.py`
+  (both already read `config.browser.*`, just never this one field).
+- **`Authorization: Bearer <token>`/`Basic <credentials>` redaction gap**
+  (found during the original Phase 9 pass, documented here for
+  completeness): `core/redaction.py`'s key=value pattern previously only
+  redacted the scheme word ("Bearer"), not the token itself.
+- **`NaN`/`+-infinity` timeout config values** previously passed through
+  `BrowserConfig.__post_init__`'s clamp only by accident of Python's NaN
+  comparison semantics (`min(nan, cap)` happens to evaluate to `nan`,
+  which `max(1.0, nan)` happens to evaluate to `1.0`) rather than by
+  explicit, tested intent. `_sanitize_timeout_seconds()` now checks
+  `math.isfinite()` explicitly.
+- **Real-project validation** (no fabricated results — see `PROGRESS.md`'s
+  Phase 9 Hardening entry for the actual matrix): static HTML, a
+  single-file rich SPA with `getUserMedia`/`MediaRecorder`/`SpeechSynthesis`
+  (`tests/fixtures/frontend-static-rich-spa/`, browser-tested without any
+  permission being auto-granted), a React/Vite framework frontend
+  (confirmed no `STATIC_WEB` downgrade), a backend-with-templates project
+  (confirmed not misclassified as a standalone frontend), an intentionally
+  broken frontend (`FAIL`, understandable reason), and an unreachable
+  target (`ERROR`/`FAIL` per the existing transport-wipeout rule, with an
+  explicit "does not by itself prove the application is defective"
+  disclaimer) — all against the real CLI, not simulated.
+- **Cancellation regression tests** added (`test_cancellation.py`) proving
+  the existing `KeyboardInterrupt`-safe cleanup behavior (§17.2's
+  `finally`-at-every-layer design) still holds — no redesign, since it
+  already satisfied the requirement.
+- **Application Health hint text** ("...driven by something that actually
+  executed (Functional/Performance)") was stale — Browser Testing joined
+  that execution-driven whitelist in the original Phase 9 pass but the
+  human-facing description text in `markdown_report.py`/`html_report.py`/
+  `i18n.js` was never updated to say so. Fixed.
+
+## 18. One-Click Web Assessment / Non-Programmer UX (Phase 10 — implemented)
+
+Not a new testing engine — a presentation/orchestration layer making the
+existing `scan`/`assess`/`browser test` capabilities usable by someone who
+doesn't know those are three different commands. Every rule below exists
+to keep it that way: one source of truth for discovery/execution/
+assessment/reporting, reused unmodified.
+
+### 18.1 Backend: reuse, not a new pipeline
+
+`cli/main.py::_run_web_assess()` (the `universal-test web assess` command)
+is a thin preset over the *existing* `assess` command: its argparse
+subparser forces `browser=True` and defaults out the performance/database
+surface (`set_defaults(performance=False, database_profile=None, ...)`),
+then calls `_run_assess()` **unmodified** for real execution — the same
+function `assess` itself calls. Zero duplicate discovery/execution/
+assessment/report logic. The only genuinely new code is a `--dry-run`
+presentation path that prints a human-readable plan (reusing
+`adapters/browser/adapter.py::run(dry_run=True)` and
+`adapters/browser/serializers.py::plan_to_text()` — both pre-existing) —
+this exists because `assess --browser --dry-run` itself has no equivalent
+plan-preview output today (a known pre-existing gap in the general `assess`
+command, deliberately left alone here rather than changed, since Phase 10's
+scope is the new guided command, not `assess`'s general contract).
+
+The GUI's "Web Assessment" card, similarly, does not introduce a second
+run/execution path: it POSTs to the *same* `/api/assess` endpoint the
+"Full Assessment" form already used, with a request body preset the same
+way the CLI's argparse defaults are (`run_functional: true, run_performance:
+false, run_database: false, run_browser: true, browser_target: <target>`),
+then reuses the exact same run-tracking (`RunRegistry`), SSE progress
+stream, and results-rendering code (`renderResults()`) the existing flow
+already had. `gui/server.py`'s only new endpoint is `POST /api/web/detect`
+— read-only, calls the existing `discover()` and returns `model.frontend.
+to_dict()` plus framework/language names, so the GUI can show a plan
+*before* the user commits to running anything (spec section 12) without
+re-parsing HTML itself or standing up a second discovery engine.
+
+### 18.2 Web detection
+
+Reuses `discovery/frontend.py`'s existing `FrontendType` enum
+(`STATIC_WEB`/`FRAMEWORK_WEB`/`FULL_STACK_WEB`/`UNKNOWN_WEB`) and
+`FrontendInfo.detected` unmodified — no second, incompatible web
+classification system. `detected: false` (a backend project with no
+frontend evidence, e.g. `backend-html-template`) renders as "no web
+frontend was detected, you can still use Full Assessment below," never a
+failure (spec section 9).
+
+### 18.3 Assessment plan before execution
+
+The plan card (GUI) and the `--dry-run` output (CLI) both show, before
+anything executes: detected type + evidence (entry point, framework,
+detected browser APIs — straight from `FrontendInfo.to_dict()`), the fixed
+list of planned checks (structure discovery, static analysis, browser
+smoke test, console-error observation), and the fixed list of what's
+*not* included (login, permission verification, visual regression,
+security testing, accessibility audit) — spec section 12's exact list,
+hard-coded as informational text since the smoke test's scope itself is
+fixed (§16/§19 of the Phase 9 spec never changed).
+
+### 18.4 Safety unchanged
+
+No safety gate was loosened to make this "one-click": `--yes`/interactive
+confirmation is still required for real browser execution
+(`_maybe_run_assess_browser()`'s existing triple-gate — unmodified);
+`browser_confirmed` is still a separate explicit GUI checkbox from
+`run_browser` (mirrors `performance_confirmed`'s established pattern);
+`--allow-external`/`browser_allow_external` still gates non-local targets
+(`target_policy.py`, unmodified). The GUI's "external target" warning box
+(a client-side prefix-match heuristic, `looksLikeLocalTarget()` in
+`app.js`) is presentation-only — the backend's `target_policy.py` remains
+the sole authority regardless of what the heuristic shows, exactly as the
+spec requires ("The GUI confirmation is additional UX protection, not the
+security boundary").
+
+### 18.5 Result summary
+
+`renderAssessmentSummary()` (pre-existing since Phase 8.5/9) already put
+Application Health/Testability/Assessment Coverage at the top of the
+results screen, each with its own status badge and one-sentence
+explanation — exactly the "non-collapsed WARNING soup" spec section 47
+asks for. Phase 10 adds one more line to that same card: Browser Testing,
+reusing `statusBadge()` unmodified. No numeric score was added anywhere
+(spec section 48) — `assessment_completeness` still renders as the literal
+string `PARTIAL`/`FULL`, never a percentage.
+
+### 18.6 A real UX bug found and fixed during review
+
+Picking a *different* project folder after already analyzing one left the
+previous plan card visible with stale detection data — a user could
+plausibly start a Web Assessment against outdated evidence for the wrong
+project. Fixed in `btn-pick-folder`'s handler: selecting a new folder now
+hides `#web-assess-plan` until the user re-analyzes.
+
+## 19. Web Test Scenario / Workflow Testing (`adapters/browser/scenario_*.py`, Phase 11 — implemented)
+
+An explicit, user-authored, repeatable multi-step Web workflow layer —
+"WHAT should be executed" — sitting entirely on top of the existing
+Browser Adapter, which remains solely responsible for "HOW browser
+operations are executed" (spec §3). No second Playwright execution path,
+no second assertion engine, no second timeout mechanism.
+
+### 19.1 A scenario step is one `TestCase`, not a bespoke object
+
+`scenario_runner.py::_build_step_test_case()` synthesizes exactly one
+`TestCase` per step — either a single action (`steps: [BrowserStep]`,
+`assertions: []`) or a single assertion (`steps: []`,
+`assertions: [AssertionSpec]`), never both — and runs it via
+`TestEngine.run(test_case, executor)`, the same Core entry point Phase 9's
+single-TestCase smoke test already uses. `ScenarioRunner`'s only addition
+is the *sequencing*: a plain Python loop over steps that stops at the
+first non-PASS result (spec §21), sharing one live `executor` (one browser
+context) across the whole scenario. An action step landing on Core's
+`ResultStatus.UNKNOWN` (its existing "executed, nothing was asserted"
+outcome) is interpreted at the scenario layer as step `PASSED` — a
+scenario-specific reading of an unmodified Core signal, not a Core change.
+
+### 19.2 Selector/action/assertion reuse
+
+`scenario_models.py::ASSERT_ACTION_MAP` maps every `assert_*` scenario
+action onto an existing `adapters/browser/assertions.py` evaluator name
+(`assert_visible` → `visible`, `assert_count` → `element_count`, etc.) —
+the scenario layer never defines a new assertion semantic, only a
+YAML-friendly name for an existing one. Real actions
+(`navigate`/`click`/`fill`/...) reuse `BrowserSelector`/`BrowserStep`
+unmodified; `ACTION_ALIASES` (`select_option`→`select`, `wait`→`wait_for`)
+and a `role` selector's `name`↔`value` alias are pure scenario-authoring
+convenience, resolved before ever touching the shared models.
+
+### 19.3 Timeout cascading — one hard-ceiling mechanism, parameterized
+
+`executor.py`'s `_executor()` closure gained a single small addition:
+`test_case.target.extra.get("test_timeout_seconds_override")`, read once
+per call, falling back to the session-level `test_timeout_seconds` when
+absent (every Phase 9/10 caller — unaffected). `ScenarioRunner` computes
+`remaining = scenario_deadline - now()` before every step and passes
+`min(step's own timeout, remaining)` as this override — the exact "child
+never exceeds remaining parent budget" rule Phase 9 Hardening's
+`_remaining_ms()` already enforces one level down, now composed one level
+up. No watchdog thread, no second timeout system.
+
+### 19.4 A real relative-navigation bug found and fixed
+
+Building the first real scenario (`login.html` → click → assert) exposed
+a genuine gap: `_run_steps()`'s `navigate` handler never resolved a
+relative `url`/`value` against the target origin before calling
+`page.goto()` — harmless in Phase 9/10 (the smoke test always navigates to
+the full target itself), but scenario portability explicitly wants
+relative URLs (spec §41: `/login`, not `http://host:port/login`). Fixed
+with a single `urljoin(target, value)` in the shared `_run_steps()`,
+benefiting any future browser test definition, not just scenarios.
+
+### 19.5 A real CLI safety gap found and fixed
+
+The first `browser scenario run` subcommand draft added a `--yes` flag but
+never gated execution on it — scenario runs would have silently bypassed
+the confirmation requirement `browser test`/`web assess` both correctly
+enforce (spec §15/§18/§46: "one-click does not mean no safety"). Fixed by
+mirroring `_maybe_run_assess_browser()`'s exact confirmation-gate shape.
+While fixing this, a second, older latent bug surfaced across *all four*
+of the CLI's confirmation prompts (performance/browser test/web assess/
+scenario run): `input()` can raise `EOFError` with a raw traceback rather
+than a clean refusal when stdin is redirected in certain Windows/
+subprocess configurations even though `sys.stdin.isatty()` reported
+`True`. Fixed once, centrally, via a new `_confirm()` helper all four call
+sites now share.
+
+### 19.6 Assessment / Regression / Reporting integration
+
+Mirrors Phase 9's Browser Testing integration file-for-file:
+`assessment/scenario_assessment.py` ("Web Scenarios", the eleventh
+category, added to `_EXECUTION_DRIVEN_CATEGORY_NAMES` alongside Browser
+Testing); `regression/scenario_compare.py` (per-scenario-ID PASS/FAIL/
+ERROR comparison, mirrors `browser_compare.py`, stable scenario `id` as
+identity per spec §36); `reporting/*_report.py` gain a "Web Scenarios"
+section. Quality Gate needed zero changes (a new category flows through
+the existing data-driven `fail_on`/`warn_on` policy automatically, same as
+every prior category addition).
+
+### 19.7 CLI / GUI
+
+`universal-test browser scenario list/validate/run` (nested under the
+existing `browser` command, matching `browser install`/`browser test`'s
+precedent) plus an opt-in `--scenario <id>` (repeatable) on `assess`/
+`baseline save`/`baseline compare`. The GUI's "Web Scenarios" card adds
+two new endpoints: `POST /api/web/scenarios` (read-only, wraps the
+existing loader/validator) and `POST /api/web/scenario/run` — the latter
+executes synchronously (a scenario run is one bounded, hard-timeout-capped
+operation, not `/api/assess`'s multi-stage pipeline, so it deliberately
+does not use `RunRegistry`/SSE) but still requires the same explicit
+`confirmed: true` the GUI's other browser-launching flows require, and
+calls the exact same `run_scenario()` the CLI uses.

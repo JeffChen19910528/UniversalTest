@@ -20,7 +20,7 @@ _KEY_VALUE_PATTERN = re.compile(
         authorization|auth|private[_-]?key|client[_-]?secret|
         set[_-]?cookie|cookie)\b
         (\s*[:=]\s*)
-        (?P<value>"[^"]*"|'[^']*'|\S+)""",
+        (?P<value>"[^"]*"|'[^']*'|Bearer\s+\S+|Basic\s+\S+|\S+)""",
     re.VERBOSE,
 )
 

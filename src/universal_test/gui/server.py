@@ -124,6 +124,12 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
                 self._validate_project(body)
             elif path == "/api/perf/endpoints":
                 self._perf_endpoints(body)
+            elif path == "/api/web/detect":
+                self._web_detect(body)
+            elif path == "/api/web/scenarios":
+                self._web_scenarios(body)
+            elif path == "/api/web/scenario/run":
+                self._web_scenario_run(body)
             elif path == "/api/assess":
                 self._start_assess(body)
             elif path == "/api/open/report":
@@ -252,6 +258,118 @@ class GuiRequestHandler(BaseHTTPRequestHandler):
         ]
         self._json({"endpoints": endpoints})
 
+    def _web_detect(self, body: dict) -> None:
+        """Pre-flight, read-only project discovery for the "Web Assessment"
+        guided flow (Phase 10) -- runs the *existing* discovery engine only
+        (no browser, no execution) so the GUI can show a plan before the
+        user commits to running anything. Never re-parses HTML itself; only
+        forwards the already-computed `FrontendInfo`.
+        """
+        project_path = body.get("project_path") or ""
+        if not project_path or not Path(project_path).is_dir():
+            self._json({"detected": False, "error": "invalid_project_path"})
+            return
+        try:
+            model = discover(project_path)
+        except DiscoveryError as exc:
+            self._json({"detected": False, "error": "discovery_failed", "detail": str(exc)})
+            return
+        self._json({
+            "detected": model.frontend.detected,
+            "frontend": model.frontend.to_dict(),
+            "frameworks": [f.name for f in model.frameworks],
+            "languages": [lang.name for lang in model.languages],
+        })
+
+    def _web_scenarios(self, body: dict) -> None:
+        """Lists scenarios from a project's scenario file, read-only -- never
+        launches a browser (Phase 11 spec section 29). Reuses the existing
+        loader/validator directly; no second YAML parser in the GUI.
+        """
+        from universal_test.adapters.browser.scenario_loader import (
+            load_scenario_file,
+            resolve_scenario_path,
+            validate_scenarios,
+        )
+        from universal_test.core.errors import ConfigurationError
+
+        project_path = body.get("project_path") or ""
+        if not project_path or not Path(project_path).is_dir():
+            self._json({"scenarios": [], "error": "invalid_project_path"})
+            return
+        try:
+            path = resolve_scenario_path(project_path, body.get("scenario_file") or None)
+            collection = load_scenario_file(path)
+        except ConfigurationError as exc:
+            self._json({"scenarios": [], "error": "scenario_file_error", "detail": str(exc)})
+            return
+        issues = validate_scenarios(collection)
+        self._json({
+            "source": collection.source_path,
+            "scenarios": [s.public_dict() for s in collection.scenarios],
+            "validation_issues": [str(i) for i in issues],
+        })
+
+    def _web_scenario_run(self, body: dict) -> None:
+        """Runs exactly one explicitly-selected scenario synchronously and
+        returns its result directly (Phase 11 spec section 30-32) -- a
+        scenario run is one bounded, hard-timeout-capped operation, not a
+        multi-stage pipeline, so it does not need the `RunRegistry`/SSE
+        machinery `/api/assess` uses; it still goes through the exact same
+        `run_scenario()` execution path the CLI uses, with the same explicit-
+        confirmation requirement (`confirmed` must be `true`, mirroring the
+        GUI's existing `browser_confirmed` checkbox pattern -- never
+        implied by merely calling this endpoint).
+        """
+        from universal_test.adapters.browser.scenario_loader import (
+            load_scenario_file,
+            resolve_scenario_path,
+            validate_scenarios,
+        )
+        from universal_test.adapters.browser.scenario_runner import run_scenario
+        from universal_test.core.configuration import load_config
+        from universal_test.core.errors import ConfigurationError
+
+        project_path = body.get("project_path") or ""
+        scenario_id = body.get("scenario_id") or ""
+        target = body.get("target") or None
+        if not project_path or not Path(project_path).is_dir():
+            self._json({"error": "invalid_project_path"}, status=400)
+            return
+        if not scenario_id:
+            self._json({"error": "scenario_id_required"}, status=400)
+            return
+        if not target:
+            self._json({"error": "target_required"}, status=400)
+            return
+        if not body.get("confirmed"):
+            self._json({"error": "confirmation_required"}, status=400)
+            return
+
+        try:
+            path = resolve_scenario_path(project_path, body.get("scenario_file") or None)
+            collection = load_scenario_file(path)
+        except ConfigurationError as exc:
+            self._json({"error": "scenario_file_error", "detail": str(exc)}, status=400)
+            return
+        issues = validate_scenarios(collection)
+        if issues:
+            self._json({"error": "validation_failed", "detail": [str(i) for i in issues]}, status=400)
+            return
+        scenario = collection.get(scenario_id)
+        if scenario is None:
+            self._json({"error": "scenario_not_found"}, status=404)
+            return
+
+        config = load_config(project_path=project_path, config_path=None)
+        result = run_scenario(
+            scenario, target=target, headless=config.browser.headless,
+            navigation_timeout_seconds=config.browser.navigation_timeout_seconds,
+            action_timeout_seconds=config.browser.action_timeout_seconds,
+            allow_external=bool(body.get("allow_external")),
+        )
+        self._json({"result": result.to_dict()})
+
     def _start_assess(self, body: dict) -> None:
         try:
             request = _request_from_json(body)
@@ -373,6 +491,11 @@ def _request_from_json(body: dict) -> AssessmentRequest:
         performance_confirmed=bool(body.get("performance_confirmed", False)),
         run_database=bool(body.get("run_database", False)),
         database_profile_path=body.get("database_profile_path") or None,
+        run_browser=bool(body.get("run_browser", False)),
+        browser_confirmed=bool(body.get("browser_confirmed", False)),
+        browser_target=body.get("browser_target") or None,
+        browser_allow_external=bool(body.get("browser_allow_external", False)),
+        browser_screenshots=bool(body.get("browser_screenshots", False)),
         baseline_path=body.get("baseline_path") or None,
         output_dir=body.get("output_dir") or None,
         report_formats=body.get("report_formats") or ["json", "markdown", "html"],

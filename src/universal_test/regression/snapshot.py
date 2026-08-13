@@ -23,6 +23,8 @@ from universal_test.regression.models import (
     AssessmentCategorySnapshot,
     AssessmentSnapshot,
     BaselineSnapshot,
+    BrowserSnapshot,
+    BrowserTestEntry,
     DatabaseSnapshot,
     DatabaseTableSnapshot,
     DiscoverySnapshot,
@@ -30,6 +32,8 @@ from universal_test.regression.models import (
     FunctionalTestEntry,
     PerformanceLevelSnapshot,
     PerformanceSnapshot,
+    ScenarioSnapshot,
+    ScenarioTestEntry,
     SourceInfo,
 )
 
@@ -110,6 +114,30 @@ def _database_snapshot(database_result: DatabaseDiscoveryResult | None) -> Datab
     return DatabaseSnapshot(engine=info.engine.value, database_name=info.database_name, summary=summary, tables=tables)
 
 
+def _browser_snapshot(browser_result) -> BrowserSnapshot | None:
+    if browser_result is None or not browser_result.executed:
+        return None
+    return BrowserSnapshot(
+        target=browser_result.target,
+        browser=browser_result.browser,
+        summary=dict(browser_result.run_result.summary),
+        tests=[BrowserTestEntry(id=r.id, status=r.status.value) for r in browser_result.run_result.results],
+    )
+
+
+def _scenario_snapshot(scenario_results) -> ScenarioSnapshot | None:
+    executed = [r for r in (scenario_results or []) if r.status != "not_assessed"]
+    if not executed:
+        return None
+    summary: dict[str, int] = {}
+    for r in executed:
+        summary[r.status] = summary.get(r.status, 0) + 1
+    return ScenarioSnapshot(
+        summary=summary,
+        tests=[ScenarioTestEntry(id=r.scenario_id, status=r.status) for r in executed],
+    )
+
+
 def _assessment_snapshot(assessment: ProjectAssessment) -> AssessmentSnapshot:
     return AssessmentSnapshot(
         overall_status=assessment.overall_status.value,
@@ -127,6 +155,8 @@ def build_snapshot(
     perf_result: PerformanceResult | None,
     database_result: DatabaseDiscoveryResult | None,
     assessment: ProjectAssessment,
+    browser_result=None,
+    scenario_results=None,
 ) -> BaselineSnapshot:
     return BaselineSnapshot(
         schema_version=SCHEMA_VERSION,
@@ -142,4 +172,6 @@ def build_snapshot(
         performance=_performance_snapshot(perf_result),
         database=_database_snapshot(database_result),
         assessment=_assessment_snapshot(assessment),
+        browser=_browser_snapshot(browser_result),
+        scenario=_scenario_snapshot(scenario_results),
     )

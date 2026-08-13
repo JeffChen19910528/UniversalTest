@@ -5,6 +5,176 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+Phase 12 — Final Web QA / Freeze. Not a feature-development phase — a
+validation-and-freeze pass over Phases 9-11's Web capabilities. **Web
+capability is frozen after this phase**; see
+`docs/WEB_CAPABILITY_FREEZE.md`.
+
+### Fixed
+
+- The packaged Windows one-click `.exe` never configured logging: it
+  calls `gui/launcher.py::launch()` directly, bypassing the CLI's
+  `configure_logging()` call, so its logger had no secret-redacting
+  formatter attached. A server-side unhandled exception could have
+  logged an unredacted secret (the response the browser received was
+  never affected). `launch()` now configures logging defensively.
+
+### Added
+
+- `docs/WEB_CAPABILITY_FREEZE.md`: the definitive Included/Explicitly-
+  Not-Included statement for everything built in Phases 9-11.
+
+Phase 11 — Web Test Scenario / Workflow Testing. Not a new test engine —
+an explicit, repeatable multi-step Web workflow layer on top of the
+existing Browser Adapter.
+
+### Added
+
+- **Scenario file** (`universal-test-web.yaml`): define a named, ordered
+  sequence of browser actions (`navigate`/`click`/`fill`/`select`/`check`/
+  `uncheck`/`press`/`wait_for`) and assertions (`assert_visible`,
+  `assert_text`, `assert_url`, `assert_count`, etc.) once, run it
+  repeatedly. Secrets via `value_env: TEST_PASSWORD`, never a literal
+  password in the file.
+- **`universal-test browser scenario list/validate/run`**: list without
+  executing, validate offline without launching a browser, run one or all
+  scenarios with `--dry-run`/`--yes` support.
+- **`assess --scenario <id>`** (repeatable): folds scenario results into
+  the unified assessment/report/regression/quality-gate pipeline as a new
+  "Web Scenarios" category.
+- **GUI "Web Scenarios" card**: list scenarios for the selected project,
+  view its steps, preview the plan, and run it after explicit
+  confirmation.
+- Sequential execution stops at the first step that doesn't pass;
+  subsequent steps are recorded `SKIPPED`, never executed.
+- Scenario-level timeout (`Run > Scenario > Step`, each child capped to
+  the remaining parent budget) reusing the existing Phase 9 Hardening
+  per-TestCase timeout mechanism.
+
+### Fixed
+
+- Relative navigation URLs (e.g. `/login`) were never resolved against
+  the authorized target origin before being passed to the browser,
+  making them unusable — an existing gap only now exercised by scenario
+  portability.
+- `browser scenario run --yes` did not actually gate execution; real
+  browser execution could have started without the required explicit
+  confirmation.
+- All four of the CLI's confirmation prompts (performance/browser test/
+  web assess/scenario run) could raise a raw `EOFError` traceback instead
+  of a clean refusal on certain Windows stdin-redirection setups.
+- `run_scenario()` did not catch a rejected/invalid target, causing a
+  crash instead of a graceful `NOT_ASSESSED` result.
+
+Phase 10 — One-Click Web Assessment / Non-Programmer UX. Not a new testing
+engine — a guided orchestration/UX layer over the existing `assess`
+pipeline.
+
+### Added
+
+- **`universal-test web assess <path>`**: one guided command combining
+  project discovery, static frontend analysis, browser smoke test, and
+  report generation — no need to know `scan`/`assess`/`browser test` as
+  separate concepts. `--dry-run` shows the full plan (detected type,
+  planned checks, not-included list, generated browser test steps)
+  without launching a browser.
+- **GUI "Web Assessment" card**: pick a project, click "Analyze Project &
+  Build Plan" to see what was detected and exactly what will/won't be
+  tested, confirm, then run — alongside (not replacing) the existing
+  "Full Assessment" form.
+- **New `POST /api/web/detect`** GUI endpoint: read-only project/frontend
+  detection for the pre-flight plan (wraps the existing discovery engine).
+- Result summary now shows a fourth distinct line — Browser Testing —
+  alongside the existing Application Health/Testability/Assessment
+  Coverage lines. Still no numeric quality score.
+
+### Fixed
+
+- `adapters/browser/local_server.py` occasionally bound a port Chromium
+  itself refuses to navigate to (`net::ERR_UNSAFE_PORT`), causing rare,
+  confusing flaky test failures. Now retries until a non-restricted port
+  is bound.
+- Picking a different project folder in the GUI after already analyzing
+  one previously left a stale Web Assessment plan visible for the old
+  project.
+
+Phase 9 Hardening — Real-Project Validation. Hardening/validation pass
+only, no new capabilities.
+
+### Added
+
+- **TestCase wall-clock timeout**: browser TestCase execution now has a
+  true hard ceiling (`browser.test_timeout_seconds`), never the sum of
+  each step's own timeout — verified with a real fixture
+  (`test_timeout_seconds=2s` + a step whose own timeout is `10s` still
+  completes in ~2.4s).
+- Cancellation regression tests (`KeyboardInterrupt` during a browser
+  session) confirming existing cleanup behavior.
+
+### Fixed
+
+- `BrowserConfig.test_timeout_seconds` was defined but never actually
+  wired to the browser executor — now threaded through end-to-end
+  (CLI/GUI/`assess --browser`).
+- `BrowserConfig`'s timeout fields now explicitly reject `NaN`/`+-infinity`
+  (`math.isfinite()`), rather than "happening to" clamp correctly only via
+  an undocumented Python NaN-comparison quirk.
+- The "Application Health" summary text (report/GUI) said it reflects only
+  "Functional/Performance" — Browser Testing joined that same
+  execution-driven category set in the original Phase 9 pass but the
+  human-facing text was never updated to say so.
+
+Browser / Web UI Functional Testing Adapter (Phase 9) — real, bounded,
+explicitly-authorized browser execution on top of Phase 8.5's frontend
+discovery. See `docs/BROWSER_TESTING.md` and `docs/BROWSER_SAFETY.md`.
+
+### Added
+
+- **`adapters/browser/`**: Playwright-based browser adapter (optional
+  `pip install universal-test[browser]` extra; base install works with
+  zero of it present). Reuses the existing `TestEngine`/`AssertionEngine`/
+  `Orchestrator` — no second test engine or assertion framework.
+- **`universal-test browser install`**: explicit, user-initiated browser
+  binary download — never automatic.
+- **`universal-test browser test <project> --target <url>`**: dry-run
+  plan preview, or real execution with a safety confirmation
+  (`--yes` for non-interactive use).
+- **`assess --browser --target ... --yes`**: opt-in browser testing folded
+  into the unified assessment/report/regression/quality-gate pipeline.
+  Disabled by default — a detected frontend never triggers it.
+- **Target safety policy**: localhost/127.0.0.1/::1/file:// allowed by
+  default; any other target requires explicit `--allow-external`. No port
+  scanning, no guessing, no following URLs found in scanned content.
+- **Conservative default smoke test**: navigate, assert page loaded, assert
+  title exists, capture console/page-error evidence — never clicks,
+  submits, uploads, or requests a permission automatically.
+- **Explicit test definitions**: `navigate`/`click`/`fill`/`select`/
+  `check`/`uncheck`/`press`/`wait_for` actions; `role`/`label`/`text`/
+  `placeholder`/`test_id`/`css` selectors; `visible`/`hidden`/
+  `text_contains`/`text_equals`/`url_equals`/`url_contains`/`page_title`/
+  `element_count`/`attribute_equals`/`input_value`/`checked`/`enabled`/
+  `disabled`/`console_summary` assertions.
+- **Assessment**: new "Browser Testing" category (`NOT_ASSESSED` by
+  default; `PASS`/`WARNING`/`FAIL` once executed, execution-driven like
+  Functional Health/Performance).
+- **Reporting**: "Browser Testing" section in `report.json`/`.md`/`.html`.
+- **Regression**: `regression/browser_compare.py`, per-test-ID PASS/FAIL/
+  ERROR comparison (no numeric score), folded into `baseline save`/
+  `baseline compare`.
+- **GUI**: "Browser / UI Testing" checkbox with an explicit confirmation
+  gate, rendered through the existing generic category grid.
+- **Safety**: fresh browser context per run, no credential guessing, no
+  auto-granted permissions, no arbitrary JavaScript execution, hard-capped
+  timeouts independent of configuration, secrets redacted via the existing
+  `core/redaction.py`, browser storage never read into evidence,
+  guaranteed process cleanup on exception/timeout/Ctrl+C.
+
+### Fixed
+
+- `core/redaction.py`'s key=value pattern now correctly redacts the full
+  value of `Authorization: Bearer <token>`/`Basic <credentials>` headers
+  (previously only the scheme word itself was redacted, leaking the token).
+
 Frontend / Web Application Analysis Adapter (Phase 8.5) — discovery +
 testability assessment for frontend projects. Explicitly **not** browser/UI
 execution; see `docs/FRONTEND_ANALYSIS.md`.

@@ -63,6 +63,13 @@ from universal_test.regression.serializers import (
 from universal_test.quality_gate import ExitCode, QualityGatePolicy, detect_ci_environment
 from universal_test.quality_gate import evaluate as qg_evaluate
 from universal_test.quality_gate.serializers import result_to_text as qg_result_to_text
+from universal_test.adapters.browser.serializers import (
+    dry_run_to_json as browser_dry_run_to_json,
+    dry_run_to_text as browser_dry_run_to_text,
+    run_to_json as browser_run_to_json,
+    run_to_markdown as browser_run_to_markdown,
+    run_to_text as browser_run_to_text,
+)
 
 # command -> phase that implements its real behavior (scan/test/performance/assess/database/baseline implemented as of Phase 2-7)
 _NOT_YET_IMPLEMENTED = {
@@ -190,6 +197,25 @@ def _add_pipeline_args(subparser: argparse.ArgumentParser) -> None:
              "load traffic unless this flag is passed (Phase 5 brief section 20).",
     )
     _add_database_args(subparser)
+    subparser.add_argument(
+        "--browser", action="store_true",
+        help="Also run browser/UI functional testing against --target. Opt-in: never launches "
+             "a browser unless this flag AND --target AND (--yes or interactive confirmation) "
+             "are all given (Phase 9 spec section 34-35).",
+    )
+    subparser.add_argument(
+        "--allow-external", action="store_true",
+        help="Allow browser navigation to targets other than localhost/127.0.0.1/::1/file:// (spec section 7)",
+    )
+    subparser.add_argument("--screenshots", action="store_true", help="Capture browser-test screenshot evidence")
+    subparser.add_argument(
+        "--scenario", action="append", default=None,
+        help="Also execute an explicit Web Scenario by id against --target (Phase 11). May be "
+             "passed multiple times. Opt-in, same confirmation gate as --browser.",
+    )
+    subparser.add_argument(
+        "--scenario-file", help="Path to the scenario YAML file (default: <path>/universal-test-web.yaml)",
+    )
 
 
 def _add_assess_args(subparser: argparse.ArgumentParser) -> None:
@@ -212,7 +238,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--version", action="version", version=f"universal-test {__version__}")
 
     subparsers = parser.add_subparsers(dest="command", required=True)
-    for name in ("scan", "assess", "test", "performance", "database", "baseline", "report", "run", "gui"):
+    for name in ("scan", "assess", "test", "performance", "database", "baseline", "browser", "web", "report", "run", "gui"):
         help_text = "launch the local browser-based GUI" if name == "gui" else f"{name} a project"
         subparser = subparsers.add_parser(name, help=help_text)
         if name == "gui":
@@ -237,6 +263,156 @@ def build_parser() -> argparse.ArgumentParser:
             _add_common_args(compare_parser)
             _add_pipeline_args(compare_parser)
             _add_baseline_args(compare_parser, required=True)
+            continue
+
+        if name == "browser":
+            browser_sub = subparser.add_subparsers(dest="browser_command", required=True)
+
+            install_parser = browser_sub.add_parser(
+                "install", help="Download a Playwright browser binary (explicit, never automatic)",
+            )
+            install_parser.add_argument(
+                "--engine", default="chromium", choices=["chromium", "firefox", "webkit"],
+                help="Which browser binary to install (default: chromium)",
+            )
+            install_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+            test_parser = browser_sub.add_parser(
+                "test", help="Run browser/UI functional tests against an explicit target",
+            )
+            test_parser.add_argument("path", help="Path to the project to inspect")
+            test_parser.add_argument("--config", help="Path to a universal-test.yaml config file")
+            test_parser.add_argument("--output", help="Directory to write output/reports to")
+            test_parser.add_argument(
+                "--format", choices=["text", "json", "markdown"], default="text",
+                help="Output format (default: text)",
+            )
+            test_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+            test_parser.add_argument(
+                "--target", required=False,
+                help="Explicit target URL/file:// path (required unless --dry-run); browser testing "
+                     "never guesses or scans for a target (spec section 6)",
+            )
+            test_parser.add_argument(
+                "--engine", default="chromium", choices=["chromium", "firefox", "webkit"],
+                help="Browser engine to use (default: chromium)",
+            )
+            test_parser.add_argument(
+                "--allow-external", action="store_true",
+                help="Allow navigation to targets other than localhost/127.0.0.1/::1/file:// (spec section 7)",
+            )
+            test_parser.add_argument("--screenshots", action="store_true", help="Capture screenshot evidence")
+            test_parser.add_argument(
+                "--dry-run", action="store_true", help="Show the test plan without launching a browser",
+            )
+            test_parser.add_argument(
+                "--yes", action="store_true", help="Skip the interactive safety confirmation (for CI/non-interactive use)",
+            )
+
+            scenario_parser = browser_sub.add_parser(
+                "scenario", help="Define and repeatedly execute an explicit, multi-step Web test workflow (Phase 11)",
+            )
+            scenario_sub = scenario_parser.add_subparsers(dest="scenario_command", required=True)
+
+            def _add_scenario_file_args(p: argparse.ArgumentParser) -> None:
+                p.add_argument("path", help="Path to the project to inspect")
+                p.add_argument("--config", help="Path to a universal-test.yaml config file")
+                p.add_argument(
+                    "--scenario-file",
+                    help="Path to the scenario YAML file (default: <path>/universal-test-web.yaml)",
+                )
+                p.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+
+            list_parser = scenario_sub.add_parser("list", help="List available scenarios without executing them")
+            _add_scenario_file_args(list_parser)
+            list_parser.add_argument("--format", choices=["text", "json"], default="text")
+
+            validate_parser = scenario_sub.add_parser(
+                "validate", help="Validate scenario file(s) without launching a browser",
+            )
+            _add_scenario_file_args(validate_parser)
+
+            run_parser = scenario_sub.add_parser("run", help="Execute one explicit scenario")
+            _add_scenario_file_args(run_parser)
+            run_parser.add_argument("--scenario", help="Scenario id to run (required unless --all)")
+            run_parser.add_argument("--all", action="store_true", help="Run every scenario in the file")
+            run_parser.add_argument(
+                "--target",
+                help="Explicit target URL/file:// path (required unless --dry-run); never guessed (spec section 16)",
+            )
+            run_parser.add_argument(
+                "--engine", default="chromium", choices=["chromium", "firefox", "webkit"],
+                help="Browser engine to use (default: chromium)",
+            )
+            run_parser.add_argument(
+                "--allow-external", action="store_true",
+                help="Allow navigation to targets other than localhost/127.0.0.1/::1/file:// (spec section 17)",
+            )
+            run_parser.add_argument("--screenshots", action="store_true", help="Capture screenshot evidence")
+            run_parser.add_argument("--output", help="Directory to write output to")
+            run_parser.add_argument("--format", choices=["text", "json", "markdown"], default="text")
+            run_parser.add_argument(
+                "--dry-run", action="store_true", help="Show the scenario plan without launching a browser",
+            )
+            run_parser.add_argument(
+                "--yes", action="store_true", help="Skip the interactive safety confirmation (for CI/non-interactive use)",
+            )
+            continue
+
+        if name == "web":
+            web_sub = subparser.add_subparsers(dest="web_command", required=True)
+
+            web_assess_parser = web_sub.add_parser(
+                "assess",
+                help="Guided, non-programmer-friendly Web Assessment: static analysis + "
+                     "browser smoke test + report, in one command (Phase 10)",
+            )
+            web_assess_parser.add_argument("path", help="Path to the project to inspect")
+            web_assess_parser.add_argument("--config", help="Path to a universal-test.yaml config file")
+            web_assess_parser.add_argument("--output", help="Directory to write output/reports to")
+            web_assess_parser.add_argument(
+                "--format", choices=["json", "markdown", "html", "all"], default="all",
+                help="Report format(s) to write (default: all)",
+            )
+            web_assess_parser.add_argument("--verbose", action="store_true", help="Enable verbose logging")
+            web_assess_parser.add_argument(
+                "--target",
+                help="Explicit browser target URL/file:// path. Without it, static analysis "
+                     "still runs but Browser Testing reports NOT_ASSESSED (spec section 14) -- "
+                     "never guessed, never scanned for.",
+            )
+            web_assess_parser.add_argument(
+                "--allow-external", action="store_true",
+                help="Allow browser navigation to targets other than localhost/127.0.0.1/::1/file:// (spec section 15)",
+            )
+            web_assess_parser.add_argument("--screenshots", action="store_true", help="Capture browser-test screenshot evidence")
+            web_assess_parser.add_argument(
+                "--dry-run", action="store_true",
+                help="Show the Web Assessment plan (discovery + intended browser actions) without "
+                     "launching a browser or sending any traffic (spec section 43)",
+            )
+            web_assess_parser.add_argument(
+                "--yes", action="store_true",
+                help="Skip the interactive browser-testing safety confirmation (for CI/non-interactive use)",
+            )
+            web_assess_parser.add_argument(
+                "--baseline", help="Optional path to a previously saved baseline.json to compare against",
+            )
+            web_assess_parser.add_argument(
+                "--ci", action="store_true",
+                help="CI mode: non-interactive behavior + machine-friendly Quality Gate summary. "
+                     "Does NOT imply --yes.",
+            )
+            # Web Assessment is deliberately scoped to static analysis + browser testing only
+            # (spec section 1/7) -- performance/database/REST-auth flags are not exposed on this
+            # command's surface; these are the safe, inert defaults `_run_pipeline` needs to exist.
+            web_assess_parser.set_defaults(
+                performance=False, database_profile=None, openapi=None, timeout=10.0,
+                concurrency=None, max_concurrency=None, requests=None, duration=None,
+                stop_error_rate=None, stop_p95_ms=None, profile="load", method=None, endpoint=None,
+                bearer_token_env=None, api_key_env=None, api_key_header=None,
+                basic_auth_user_env=None, basic_auth_pass_env=None, browser=True,
+            )
             continue
 
         _add_common_args(subparser)
@@ -266,6 +442,30 @@ def main(argv: list[str] | None = None) -> int:
         launch(port=args.port, open_browser=not args.no_browser)
         return 0
 
+    if args.command == "browser" and args.browser_command == "install":
+        return _run_browser_install(args, command_logger)
+
+    if args.command == "browser" and args.browser_command == "test" and not args.target and not args.dry_run:
+        command_logger.error(
+            "browser testing requires an explicit --target (spec section 6); "
+            "refusing to guess or scan for a target, even for a smoke test"
+        )
+        return 2
+
+    if args.command == "browser" and args.browser_command == "scenario" and args.scenario_command == "run":
+        if not args.target and not args.dry_run:
+            command_logger.error(
+                "scenario execution requires an explicit --target (spec section 16); "
+                "refusing to guess or scan for a target, even for a dry run"
+            )
+            return 2
+        if not args.scenario and not args.all:
+            command_logger.error(
+                "specify which scenario to run: --scenario <id> (or --all to run every scenario); "
+                "Universal Test never surprises you by executing every scenario implicitly (spec section 28)"
+            )
+            return 2
+
     if args.command == "performance" and not args.target:
         command_logger.error(
             "performance testing requires an explicit --target (skill.md section 4.2); "
@@ -293,6 +493,16 @@ def main(argv: list[str] | None = None) -> int:
         if args.baseline_command == "save":
             return _run_baseline_save(args, config, command_logger)
         return _run_baseline_compare(args, config, command_logger)
+    if args.command == "browser" and args.browser_command == "test":
+        return _run_browser_test(args, config, command_logger)
+    if args.command == "browser" and args.browser_command == "scenario":
+        if args.scenario_command == "list":
+            return _run_scenario_list(args, command_logger)
+        if args.scenario_command == "validate":
+            return _run_scenario_validate(args, command_logger)
+        return _run_scenario_run(args, config, command_logger)
+    if args.command == "web" and args.web_command == "assess":
+        return _run_web_assess(args, config, command_logger)
 
     phase = _NOT_YET_IMPLEMENTED[args.command]
     logger.info(
@@ -333,6 +543,19 @@ def _run_scan(args: argparse.Namespace, logger) -> int:
         print(rendered)
 
     return 0
+
+
+def _confirm(prompt: str) -> bool:
+    """Reads a y/N confirmation, treating a closed/exhausted stdin (`EOFError`
+    -- observed on Windows even when `sys.stdin.isatty()` reported `True` for
+    a redirected/NUL stdin in some subprocess configurations) the same as a
+    "no" answer rather than letting a raw traceback escape a safety prompt.
+    """
+    try:
+        answer = input(prompt).strip().lower()
+    except EOFError:
+        return False
+    return answer in ("y", "yes")
 
 
 def _write_or_print(rendered: str, output: str | None, extension: str, logger, default_name: str) -> None:
@@ -463,8 +686,7 @@ def _run_performance(args: argparse.Namespace, config, logger) -> int:
                 "(pass --yes for CI/non-interactive use)"
             )
             return 2
-        answer = input("Proceed? [y/N] ").strip().lower()
-        if answer not in ("y", "yes"):
+        if not _confirm("Proceed? [y/N] "):
             logger.info("performance test cancelled by user")
             return 2
 
@@ -563,10 +785,14 @@ def _run_pipeline(args: argparse.Namespace, config, model, logger):
 
     perf_result, performance_not_run_reason = _maybe_run_assess_performance(args, config, auth_config, logger)
     database_result = _maybe_run_assess_database(args, logger)
+    browser_result, browser_not_run_reason = _maybe_run_assess_browser(args, config, logger)
+    scenario_results, scenario_not_run_reason = _maybe_run_assess_scenario(args, config, logger)
 
     return (
         has_confirmed_openapi, generated_count, run_result, functional_not_run_reason,
         perf_result, performance_not_run_reason, database_result,
+        browser_result, browser_not_run_reason,
+        scenario_results, scenario_not_run_reason,
     )
 
 
@@ -592,6 +818,8 @@ def _run_assess(args: argparse.Namespace, config, logger) -> int:
     (
         has_confirmed_openapi, generated_count, run_result, functional_not_run_reason,
         perf_result, performance_not_run_reason, database_result,
+        browser_result, browser_not_run_reason,
+        scenario_results, scenario_not_run_reason,
     ) = _run_pipeline(args, config, model, logger)
 
     assessment = build_assessment(
@@ -599,6 +827,8 @@ def _run_assess(args: argparse.Namespace, config, logger) -> int:
         run_result=run_result, functional_not_run_reason=functional_not_run_reason,
         perf_result=perf_result, performance_not_run_reason=performance_not_run_reason,
         has_confirmed_openapi=has_confirmed_openapi, database_result=database_result,
+        browser_result=browser_result, browser_not_run_reason=browser_not_run_reason,
+        scenario_results=scenario_results, scenario_not_run_reason=scenario_not_run_reason,
     )
 
     regression = None
@@ -617,7 +847,7 @@ def _run_assess(args: argparse.Namespace, config, logger) -> int:
             current_snapshot = build_snapshot(
                 project_path=args.path, target=args.target, model=model, generated_count=generated_count,
                 run_result=run_result, perf_result=perf_result, database_result=database_result,
-                assessment=assessment,
+                assessment=assessment, browser_result=browser_result, scenario_results=scenario_results,
             )
             thresholds = dict(config.regression.performance) if config.regression.performance else {}
             regression = regression_compare(baseline_snapshot, current_snapshot, performance_thresholds=thresholds)
@@ -628,7 +858,8 @@ def _run_assess(args: argparse.Namespace, config, logger) -> int:
     bundle = AssessReportBundle(
         assessment=assessment, model=model, run_result=run_result,
         generated_count=generated_count, perf_result=perf_result, database_result=database_result,
-        regression=regression, quality_gate=quality_gate_result,
+        regression=regression, quality_gate=quality_gate_result, browser_result=browser_result,
+        scenario_results=scenario_results,
     )
 
     output_dir = args.output or ("reports" if args.format == "all" else None)
@@ -708,8 +939,7 @@ def _maybe_run_assess_performance(args: argparse.Namespace, config, auth_config,
                 "environments (skipping --performance for this run)."
             )
             return None, "confirmation was required but not given (non-interactive session)"
-        answer = input("Proceed with performance testing? [y/N] ").strip().lower()
-        if answer not in ("y", "yes"):
+        if not _confirm("Proceed with performance testing? [y/N] "):
             logger.info("performance test cancelled by user")
             return None, "performance test was cancelled by the user"
 
@@ -738,6 +968,325 @@ def _maybe_run_assess_database(args: argparse.Namespace, logger):
         logger.error("invalid --database-profile: %s", exc)
         return None
     return db_discover(profile)
+
+
+def _maybe_run_assess_browser(args: argparse.Namespace, config, logger):
+    """Returns `(browser_result, not_run_reason)`. Opt-in via `--browser`; never
+    launches a browser otherwise (spec section 34-35). Mirrors
+    `_maybe_run_assess_performance`'s confirmation-gate shape (spec section 30).
+    """
+    if not getattr(args, "browser", False):
+        return None, "browser testing was not enabled (pass --browser)"
+    if not args.target:
+        return None, "no execution target was provided"
+    if args.dry_run:
+        return None, "generation-only (--dry-run was specified)"
+
+    if not args.yes:
+        print("This test will open the target in a browser and execute UI actions.")
+        print(f"Target: {args.target}")
+        print("No credentials will be guessed.")
+        print()
+        if getattr(args, "ci", False) or not sys.stdin.isatty():
+            logger.error(
+                "Interactive confirmation required. Use --yes in CI/non-interactive "
+                "environments (skipping --browser for this run)."
+            )
+            return None, "confirmation was required but not given (non-interactive session)"
+        if not _confirm("Continue? [y/N] "):
+            logger.info("browser test cancelled by user")
+            return None, "browser test was cancelled by the user"
+
+    from universal_test.adapters.browser.adapter import run as browser_run
+
+    result = browser_run(
+        args.path, target=args.target, allow_external=getattr(args, "allow_external", False),
+        browser=config.browser.browser, headless=config.browser.headless,
+        navigation_timeout_seconds=config.browser.navigation_timeout_seconds,
+        action_timeout_seconds=config.browser.action_timeout_seconds,
+        test_timeout_seconds=config.browser.test_timeout_seconds,
+        screenshots=getattr(args, "screenshots", False),
+        screenshot_dir=(Path(args.output) / "screenshots") if args.output else None,
+    )
+    if result.not_assessed_reason:
+        return None, result.not_assessed_reason
+    return result, None
+
+
+def _maybe_run_assess_scenario(args: argparse.Namespace, config, logger):
+    """Returns `(scenario_results, not_run_reason)`. Opt-in via one or more
+    `--scenario <id>`; never launches a browser otherwise (Phase 11 spec
+    section 37-38). Mirrors `_maybe_run_assess_browser()`'s confirmation-gate
+    shape exactly -- "one-click does not mean no safety" applies here too.
+    """
+    scenario_ids = getattr(args, "scenario", None)
+    if not scenario_ids:
+        return None, "no Web Scenario was requested (pass --scenario <id>)"
+    if not args.target:
+        return None, "no execution target was provided"
+    if args.dry_run:
+        return None, "generation-only (--dry-run was specified)"
+
+    from universal_test.adapters.browser.scenario_loader import (
+        load_scenario_file,
+        resolve_scenario_path,
+        validate_scenarios,
+    )
+
+    try:
+        path = resolve_scenario_path(args.path, getattr(args, "scenario_file", None))
+        collection = load_scenario_file(path)
+    except ConfigurationError as exc:
+        return None, str(exc)
+
+    issues = validate_scenarios(collection)
+    if issues:
+        for issue in issues:
+            logger.error(str(issue))
+        return None, f"scenario file failed validation ({len(issues)} issue(s))"
+
+    selected = []
+    for scenario_id in scenario_ids:
+        scenario = collection.get(scenario_id)
+        if scenario is None:
+            return None, f"scenario {scenario_id!r} not found in {collection.source_path}"
+        selected.append(scenario)
+
+    if not args.yes:
+        print(f"This will run {len(selected)} Web Scenario(s) in Chromium and execute the defined steps.")
+        print(f"Target: {args.target}")
+        print("No credentials will be guessed.")
+        print()
+        if getattr(args, "ci", False) or not sys.stdin.isatty():
+            logger.error(
+                "Interactive confirmation required. Use --yes in CI/non-interactive "
+                "environments (skipping --scenario for this run)."
+            )
+            return None, "confirmation was required but not given (non-interactive session)"
+        if not _confirm("Continue? [y/N] "):
+            logger.info("scenario run cancelled by user")
+            return None, "scenario run was cancelled by the user"
+
+    from universal_test.adapters.browser.scenario_runner import run_scenario
+
+    results = [
+        run_scenario(
+            scenario, target=args.target, headless=config.browser.headless,
+            navigation_timeout_seconds=config.browser.navigation_timeout_seconds,
+            action_timeout_seconds=config.browser.action_timeout_seconds,
+            allow_external=getattr(args, "allow_external", False),
+            screenshot_dir=(Path(args.output) / "screenshots") if args.output and getattr(args, "screenshots", False) else None,
+        )
+        for scenario in selected
+    ]
+    return results, None
+
+
+def _run_browser_install(args: argparse.Namespace, logger) -> int:
+    import subprocess
+
+    logger.info(
+        "Downloading a Playwright browser binary (%s) -- this is an explicit, user-initiated "
+        "download and never happens automatically elsewhere (spec section 5).", args.engine,
+    )
+    try:
+        completed = subprocess.run([sys.executable, "-m", "playwright", "install", args.engine], check=False)
+    except FileNotFoundError:
+        logger.error(
+            "Playwright is not installed. Install it first with: pip install universal-test[browser]"
+        )
+        return 2
+    if completed.returncode != 0:
+        logger.error("browser install failed for %s (exit code %d)", args.engine, completed.returncode)
+        return 2
+    print(f"Browser installed: {args.engine}")
+    return 0
+
+
+def _run_browser_test(args: argparse.Namespace, config, logger) -> int:
+    from universal_test.adapters.browser.adapter import run as browser_run
+
+    result = browser_run(
+        args.path, target=args.target, allow_external=args.allow_external, browser=args.engine,
+        headless=config.browser.headless, navigation_timeout_seconds=config.browser.navigation_timeout_seconds,
+        action_timeout_seconds=config.browser.action_timeout_seconds,
+        test_timeout_seconds=config.browser.test_timeout_seconds, screenshots=args.screenshots,
+        screenshot_dir=(Path(args.output) / "screenshots") if args.output else None, dry_run=args.dry_run,
+    )
+
+    if args.dry_run:
+        rendered = browser_dry_run_to_json(result) if args.format == "json" else browser_dry_run_to_text(result, allow_external=args.allow_external)
+        _write_or_print(rendered, args.output, _FORMAT_EXTENSION.get(args.format, "txt"), logger, "browser_dry_run")
+        return 0
+
+    if not result.executed:
+        reason = result.not_assessed_reason or result.no_target_reason
+        logger.info("Browser testing NOT_ASSESSED: %s", reason)
+        print(f"NOT ASSESSED: {reason}")
+        return 0 if result.not_assessed_reason else 2
+
+    renderers = {"text": browser_run_to_text, "json": browser_run_to_json, "markdown": browser_run_to_markdown}
+    rendered = renderers[args.format](result)
+    _write_or_print(rendered, args.output, _FORMAT_EXTENSION.get(args.format, "txt"), logger, "browser_test_run")
+
+    summary = result.run_result.summary
+    print(f"Browser tests: {summary.get('passed', 0)} passed, {summary.get('failed', 0)} failed, "
+          f"{summary.get('error', 0)} error, {summary.get('skipped', 0)} skipped")
+    return 0 if summary.get("failed", 0) == 0 and summary.get("error", 0) == 0 else 1
+
+
+def _load_scenario_collection_or_none(args: argparse.Namespace, logger):
+    from universal_test.adapters.browser.scenario_loader import load_scenario_file, resolve_scenario_path
+
+    path = resolve_scenario_path(args.path, getattr(args, "scenario_file", None))
+    try:
+        return load_scenario_file(path)
+    except ConfigurationError as exc:
+        logger.error(str(exc))
+        return None
+
+
+def _run_scenario_list(args: argparse.Namespace, logger) -> int:
+    from universal_test.adapters.browser.scenario_serializers import list_to_json, list_to_text
+
+    collection = _load_scenario_collection_or_none(args, logger)
+    if collection is None:
+        return 2
+    rendered = list_to_json(collection) if args.format == "json" else list_to_text(collection)
+    print(rendered)
+    return 0
+
+
+def _run_scenario_validate(args: argparse.Namespace, logger) -> int:
+    from universal_test.adapters.browser.scenario_loader import validate_scenarios
+    from universal_test.adapters.browser.scenario_serializers import validation_to_text
+
+    collection = _load_scenario_collection_or_none(args, logger)
+    if collection is None:
+        return 2
+    issues = validate_scenarios(collection)
+    print(validation_to_text(issues))
+    return 0 if not issues else 2
+
+
+def _run_scenario_run(args: argparse.Namespace, config, logger) -> int:
+    from universal_test.adapters.browser.scenario_loader import validate_scenarios
+    from universal_test.adapters.browser.scenario_runner import run_scenario
+    from universal_test.adapters.browser.scenario_serializers import (
+        plan_to_text,
+        result_to_json,
+        result_to_markdown,
+        result_to_text,
+    )
+
+    collection = _load_scenario_collection_or_none(args, logger)
+    if collection is None:
+        return 2
+    issues = validate_scenarios(collection)
+    if issues:
+        # Configuration errors must never result in browser execution (spec section 13).
+        for issue in issues:
+            logger.error(str(issue))
+        return 2
+
+    if args.all:
+        selected = collection.scenarios
+    else:
+        scenario = collection.get(args.scenario)
+        if scenario is None:
+            logger.error(
+                "scenario %r not found in %s; run `browser scenario list` to see available scenarios",
+                args.scenario, collection.source_path,
+            )
+            return 2
+        selected = [scenario]
+
+    if args.dry_run:
+        for scenario in selected:
+            print(plan_to_text(scenario, target=args.target, allow_external=args.allow_external))
+            print()
+        return 0
+
+    # Real browser execution remains subject to the same explicit-confirmation
+    # gate every other browser-launching command already enforces (spec section
+    # 15/18/46: "one-click does not mean no safety") -- never bypassed just
+    # because a scenario file exists.
+    if not args.yes:
+        for scenario in selected:
+            print(plan_to_text(scenario, target=args.target, allow_external=args.allow_external))
+            print()
+        if not sys.stdin.isatty():
+            logger.error(
+                "non-interactive session with no --yes flag; refusing to run without confirmation "
+                "(pass --yes for CI/non-interactive use)"
+            )
+            return 2
+        if not _confirm("Proceed? [y/N] "):
+            logger.info("scenario run cancelled by user")
+            return 2
+
+    renderers = {"text": result_to_text, "json": result_to_json, "markdown": result_to_markdown}
+    worst_exit = 0
+    for scenario in selected:
+        result = run_scenario(
+            scenario, target=args.target, browser=args.engine, headless=config.browser.headless,
+            navigation_timeout_seconds=config.browser.navigation_timeout_seconds,
+            action_timeout_seconds=config.browser.action_timeout_seconds,
+            allow_external=args.allow_external,
+            screenshot_dir=(Path(args.output) / "screenshots") if args.output and args.screenshots else None,
+        )
+        rendered = renderers[args.format](result)
+        _write_or_print(
+            rendered, args.output, _FORMAT_EXTENSION.get(args.format, "txt"), logger,
+            f"scenario_{scenario.id}",
+        )
+        print(f"Scenario {scenario.id}: {result.status.upper()} "
+              f"({result.passed_steps} passed, {result.failed_steps} failed, "
+              f"{result.error_steps} error, {result.skipped_steps} skipped)")
+        if result.status in ("fail", "error"):
+            worst_exit = max(worst_exit, 1)
+    return worst_exit
+
+
+def _run_web_assess(args: argparse.Namespace, config, logger) -> int:
+    """Guided, one-command Web Assessment (Phase 10): static analysis +
+    browser smoke test + report, without requiring the user to understand
+    `scan`/`assess`/`browser test` as separate concepts. Reuses `_run_assess`
+    unmodified for real execution -- this function only pre-sets
+    `args.browser = True` (already done in `set_defaults`) and, for
+    `--dry-run`, prints a human-readable plan the existing `assess --dry-run`
+    path doesn't otherwise surface for browser testing (spec section 43).
+    """
+    if args.dry_run:
+        from universal_test.adapters.browser.adapter import run as browser_run
+        from universal_test.adapters.browser.serializers import plan_to_text
+
+        plan = browser_run(args.path, target=args.target, dry_run=True)
+        lines = [
+            "Web Assessment Plan", "====================", "",
+            f"Project: {args.path}",
+            f"Target: {args.target or '(none provided)'}", "",
+            "Planned checks:",
+            "  - Project structure discovery",
+            "  - Static frontend analysis",
+        ]
+        if args.target:
+            lines.append("  - Browser page-load smoke test")
+        else:
+            lines.append("  - Browser page-load smoke test: SKIPPED (no --target provided)")
+        lines += [
+            "",
+            "Not included: login workflow, microphone/camera verification, file upload/download,",
+            "visual regression, security testing, accessibility audit, performance testing.",
+            "",
+        ]
+        if args.target:
+            lines.append(plan_to_text(plan, allow_external=args.allow_external))
+        lines.append("No browser was launched; no HTTP requests were sent (dry run).")
+        print("\n".join(lines))
+        return 0
+
+    return _run_assess(args, config, logger)
 
 
 def _run_database(args: argparse.Namespace, logger) -> int:
@@ -780,6 +1329,8 @@ def _build_current_snapshot(args: argparse.Namespace, config, model, logger):
     (
         has_confirmed_openapi, generated_count, run_result, functional_not_run_reason,
         perf_result, performance_not_run_reason, database_result,
+        browser_result, browser_not_run_reason,
+        scenario_results, scenario_not_run_reason,
     ) = _run_pipeline(args, config, model, logger)
 
     assessment = build_assessment(
@@ -787,10 +1338,13 @@ def _build_current_snapshot(args: argparse.Namespace, config, model, logger):
         run_result=run_result, functional_not_run_reason=functional_not_run_reason,
         perf_result=perf_result, performance_not_run_reason=performance_not_run_reason,
         has_confirmed_openapi=has_confirmed_openapi, database_result=database_result,
+        browser_result=browser_result, browser_not_run_reason=browser_not_run_reason,
+        scenario_results=scenario_results, scenario_not_run_reason=scenario_not_run_reason,
     )
     snapshot = build_snapshot(
         project_path=args.path, target=args.target, model=model, generated_count=generated_count,
         run_result=run_result, perf_result=perf_result, database_result=database_result, assessment=assessment,
+        browser_result=browser_result, scenario_results=scenario_results,
     )
     return snapshot
 

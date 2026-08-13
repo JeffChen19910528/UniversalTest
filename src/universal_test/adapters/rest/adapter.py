@@ -2,11 +2,9 @@
 
 `run()` is what the CLI calls. `RestAdapter` additionally implements the
 generic adapter contract from ARCHITECTURE.md §7 (`detect/describe/discover/
-generate_tests/execute/collect_metrics`) for architectural completeness —
-`AdapterInfo` is defined here rather than in `core` because the REST adapter
-is currently the only adapter that needs it; if a second adapter (Phase 6+)
-needs the same shape, factor it out then rather than guessing its final form
-now.
+generate_tests/execute/collect_metrics`) for architectural completeness.
+`AdapterInfo` now lives in `core.adapter_info` — factored out once the
+Frontend and Browser adapters needed the same shape.
 """
 
 from __future__ import annotations
@@ -15,6 +13,7 @@ import dataclasses
 from dataclasses import dataclass
 from pathlib import Path
 
+from universal_test.core.adapter_info import AdapterInfo
 from universal_test.core.models.enums import ResultStatus
 from universal_test.core.models.test_spec import TestCase
 from universal_test.core.orchestration.orchestrator import Orchestrator, RunResult
@@ -26,13 +25,6 @@ from universal_test.adapters.rest.normalizer import parse_specification
 from universal_test.adapters.rest.test_generation import generate_test_cases
 
 DEFAULT_TIMEOUT_SECONDS = 10.0
-
-
-@dataclass(frozen=True)
-class AdapterInfo:
-    name: str
-    version: str
-    capabilities: list[str]
 
 
 @dataclass

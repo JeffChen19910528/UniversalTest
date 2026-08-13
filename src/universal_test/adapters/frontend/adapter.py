@@ -13,26 +13,20 @@ Adapter (Frontend Adapter brief §3/§32/§36) and must not be implied here.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from pathlib import Path
 
+from universal_test.core.adapter_info import AdapterInfo
 from universal_test.core.models.test_spec import TestCase
 from universal_test.core.orchestration.orchestrator import RunResult
 from universal_test.discovery import filesystem, framework, frontend, manifests
 from universal_test.discovery.models import FrontendInfo
 
 NOT_IMPLEMENTED_MESSAGE = (
-    "Browser/UI test execution is not implemented in this version - "
-    "reserved for a future Browser Adapter. Frontend analysis (discovery + "
-    "testability assessment) is available via detect()/discover()."
+    "Browser/UI test execution is not implemented by this adapter directly - "
+    "see adapters.browser for real browser/UI execution (Phase 9). Frontend "
+    "analysis (discovery + testability assessment) is available via "
+    "detect()/discover()."
 )
-
-
-@dataclass(frozen=True)
-class AdapterInfo:
-    name: str
-    version: str
-    capabilities: list[str]
 
 
 def discover(project_path: str | Path) -> FrontendInfo:

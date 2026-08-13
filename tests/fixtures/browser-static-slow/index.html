@@ -1,0 +1,22 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Slow Fixture</title>
+</head>
+<body>
+  <h1>This page loads instantly, but the #ready element only appears after
+     a long delay -- used to prove the browser TestCase wall-clock timeout
+     is a true hard ceiling, never the sum of every step's own timeout.</h1>
+  <script>
+    // Intentionally slow: only local JS, no network access, never depends
+    // on the Internet (Phase 9 hardening spec section 9).
+    setTimeout(function () {
+      var el = document.createElement("div");
+      el.id = "ready";
+      el.textContent = "ready";
+      document.body.appendChild(el);
+    }, 10000);
+  </script>
+</body>
+</html>

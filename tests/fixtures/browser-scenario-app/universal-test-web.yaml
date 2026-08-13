@@ -1,0 +1,31 @@
+scenarios:
+  - id: login-smoke
+    name: Login Smoke Test
+    description: Verify that a valid user can reach the dashboard.
+    steps:
+      - id: open
+        action: navigate
+        url: login.html
+      - id: enter-user
+        action: fill
+        selector:
+          type: label
+          value: Username
+        value_env: TEST_USERNAME
+      - id: enter-pass
+        action: fill
+        selector:
+          type: label
+          value: Password
+        value_env: TEST_PASSWORD
+      - id: login
+        action: click
+        selector:
+          type: role
+          role: button
+          name: Login
+      - id: dashboard
+        action: assert_visible
+        selector:
+          type: text
+          value: Dashboard

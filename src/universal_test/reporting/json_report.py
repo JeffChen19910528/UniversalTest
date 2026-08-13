@@ -31,6 +31,8 @@ def to_dict(bundle: AssessReportBundle) -> dict:
             bundle.database_result.info.to_dict()
             if bundle.database_result and bundle.database_result.info else None
         ),
+        "browser": bundle.browser_result.to_dict() if bundle.browser_result else None,
+        "scenarios": [r.to_dict() for r in bundle.scenario_results] if bundle.scenario_results else None,
         "regression": bundle.regression.to_dict() if bundle.regression else None,
         "quality_gate": bundle.quality_gate.to_dict() if bundle.quality_gate else None,
         "assessment": {

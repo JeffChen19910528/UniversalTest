@@ -258,7 +258,11 @@ def to_markdown(model: ProjectModel) -> str:
             lines.append(f"- Test scripts: {', '.join(f'`{k}`' for k in fe.test_scripts)}")
         if fe.frontend_test_directories:
             lines.append(f"- Test directories: {', '.join(f'`{d}`' for d in fe.frontend_test_directories)}")
-        lines.append("- **Browser/UI Execution: NOT_ASSESSED** - browser automation adapter is not enabled in this version.")
+        lines.append(
+            "- **Browser/UI Execution: NOT_ASSESSED** - 'scan' performs discovery only and never "
+            "executes anything; use `universal-test browser test` or `assess --browser --target ...` "
+            "for actual browser/UI functional testing."
+        )
         lines.append("")
 
     lines.append("## Potential Secrets")

@@ -15,6 +15,8 @@ from universal_test.testing.performance.models import PerformanceResult
 from universal_test.adapters.database.adapter import DatabaseDiscoveryResult
 from universal_test.assessment.configuration_assessment import assess_configuration_hygiene
 from universal_test.assessment.database_assessment import assess_database_health, database_testability_signal
+from universal_test.assessment.browser_assessment import assess_browser_health
+from universal_test.assessment.scenario_assessment import assess_scenario_health
 from universal_test.assessment.discovery_assessment import (
     assess_build_health,
     assess_project_discovery,
@@ -39,7 +41,7 @@ LIMITATIONS = [
 
 def _compute_coverage(
     model: ProjectModel, generated_count: int, run_result: RunResult | None, perf_result: PerformanceResult | None,
-    database_result: DatabaseDiscoveryResult | None,
+    database_result: DatabaseDiscoveryResult | None, browser_result=None, scenario_results=None,
 ) -> list[CoverageItem]:
     items = [CoverageItem("Discovery", 100.0)]
 
@@ -72,16 +74,29 @@ def _compute_coverage(
 
     items.append(CoverageItem("Frontend Discovery", 100.0))
     if model.frontend.detected:
+        if browser_result is not None and browser_result.executed:
+            items.append(CoverageItem("Browser/UI Execution", 100.0))
+        else:
+            reason = (
+                (browser_result.not_assessed_reason or browser_result.no_target_reason) if browser_result
+                else "browser testing was not requested (pass --browser --target ... --yes)"
+            )
+            items.append(CoverageItem("Browser/UI Execution", 0.0, reason=reason))
+
+    if scenario_results:
+        executed = [r for r in scenario_results if r.status != "not_assessed"]
+        percent = round((len(executed) / len(scenario_results)) * 100, 1)
         items.append(CoverageItem(
-            "Browser/UI Execution", 0.0,
-            reason="browser automation adapter is not enabled in this version",
+            "Web Scenarios", percent, reason=None if executed else "scenario(s) were not executed",
         ))
+    else:
+        items.append(CoverageItem("Web Scenarios", 0.0, reason="no scenario was requested"))
     return items
 
 
 def _compute_unassessed(
     model: ProjectModel, run_result: RunResult | None, perf_result: PerformanceResult | None,
-    database_result: DatabaseDiscoveryResult | None,
+    database_result: DatabaseDiscoveryResult | None, browser_result=None, scenario_results=None,
 ) -> list[UnassessedArea]:
     areas: list[UnassessedArea] = []
 
@@ -102,10 +117,14 @@ def _compute_unassessed(
         areas.append(UnassessedArea("Functional correctness under load", "no execution target was provided"))
     if perf_result is None:
         areas.append(UnassessedArea("Performance", "performance execution was not enabled (pass --performance)"))
-    if model.frontend.detected:
-        areas.append(UnassessedArea(
-            "Browser/UI Execution", "Browser automation adapter is not enabled in this version.",
-        ))
+    if model.frontend.detected and (browser_result is None or not browser_result.executed):
+        reason = (
+            (browser_result.not_assessed_reason or browser_result.no_target_reason) if browser_result
+            else "browser testing was not requested (pass --browser --target ... --yes)"
+        )
+        areas.append(UnassessedArea("Browser/UI Execution", reason))
+    if not scenario_results:
+        areas.append(UnassessedArea("Web Scenarios", "no scenario was requested"))
     areas.append(UnassessedArea(
         "Business logic correctness", "no formal business specification is available to validate against",
     ))
@@ -124,6 +143,10 @@ def build_assessment(
     performance_not_run_reason: str | None,
     has_confirmed_openapi: bool,
     database_result: DatabaseDiscoveryResult | None = None,
+    browser_result=None,
+    browser_not_run_reason: str | None = None,
+    scenario_results=None,
+    scenario_not_run_reason: str | None = None,
 ) -> ProjectAssessment:
     db_signal = database_testability_signal(database_result, bool(model.databases))
     categories = [
@@ -136,12 +159,18 @@ def build_assessment(
         assess_configuration_hygiene(model),
         assess_test_infrastructure(model),
         assess_frontend_health(model),
+        assess_browser_health(browser_result, browser_not_run_reason),
+        assess_scenario_health(scenario_results, scenario_not_run_reason),
     ]
 
     overall = compute_overall_status([c.status for c in categories])
     application_health = compute_application_health(categories)
-    coverage = _compute_coverage(model, generated_count, run_result, perf_result, database_result)
-    unassessed = _compute_unassessed(model, run_result, perf_result, database_result)
+    coverage = _compute_coverage(
+        model, generated_count, run_result, perf_result, database_result, browser_result, scenario_results,
+    )
+    unassessed = _compute_unassessed(
+        model, run_result, perf_result, database_result, browser_result, scenario_results,
+    )
     assessment_completeness = (
         "full" if not unassessed and all(c.percent == 100.0 for c in coverage) else "partial"
     )

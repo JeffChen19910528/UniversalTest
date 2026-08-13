@@ -71,6 +71,15 @@ header.top-bar h1 {
   display: block;
 }
 
+.section-divider {
+  margin: 28px 0 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 14px;
+  font-weight: 600;
+}
+
 .field-hint {
   color: var(--muted);
   font-size: 13px;

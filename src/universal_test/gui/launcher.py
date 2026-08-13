@@ -13,7 +13,7 @@ import sys
 import threading
 import webbrowser
 
-from universal_test.core.logging_setup import get_logger
+from universal_test.core.logging_setup import configure_logging, get_logger
 from universal_test.gui.server import LOOPBACK_HOST, find_free_port, make_server
 
 logger = get_logger("gui")
@@ -55,7 +55,21 @@ def launch(port: int = 0, open_browser: bool = True, block: bool = True):
     browser to it. Returns the running server; callers that pass
     `block=False` (e.g. tests) are responsible for calling
     `server.shutdown()` themselves.
+
+    Configures logging (with secret redaction, `core/logging_setup.py`)
+    defensively on every call -- `configure_logging()` is idempotent, and
+    `launch()` is documented as *the* single entry point both
+    `universal-test gui` and the packaged one-click `.exe` use. The packaged
+    exe (`release/windows/launch_gui.py`) calls this function directly and
+    never goes through `cli/main.py::main()`, which is the only other place
+    that previously called `configure_logging()` -- without this, the
+    packaged exe's logger had no `RedactingFormatter` attached at all,
+    meaning an unhandled exception logged via `gui/server.py`'s
+    `_internal_error()` could write an unredacted traceback (found during
+    Phase 12 QA; the opaque `error_id` returned to the browser was never
+    affected, only the server-side log record).
     """
+    configure_logging()
     actual_port = port or find_free_port()
     server = make_server(host=LOOPBACK_HOST, port=actual_port)
     url = f"http://{LOOPBACK_HOST}:{server.server_port}"

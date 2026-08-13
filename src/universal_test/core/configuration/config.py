@@ -8,6 +8,7 @@ defaults — nothing here enables an intrusive or destructive behavior.
 from __future__ import annotations
 
 import copy
+import math
 from dataclasses import dataclass, field, fields, is_dataclass
 from pathlib import Path
 from typing import Any
@@ -55,6 +56,63 @@ class DatabaseConfig:
 @dataclass
 class SecurityConfig:
     enabled: bool = False
+
+
+MAX_BROWSER_TIMEOUT_SECONDS = 120.0  # hard ceiling, independent of configuration,
+                                      # same "config can never request unbounded waits" rule
+                                      # `CiConfig`/`testing/performance/planner.py` already enforce.
+MAX_BROWSER_TEST_TIMEOUT_SECONDS = MAX_BROWSER_TIMEOUT_SECONDS * 5  # the TestCase wall-clock ceiling
+_MIN_BROWSER_TIMEOUT_SECONDS = 1.0
+
+
+def _sanitize_timeout_seconds(value: object, *, default: float, cap: float) -> float:
+    """Clamp a browser timeout to `[1.0, cap]`, falling back to `default` for
+    anything that isn't a finite, sane number (NaN/+-infinity/non-numeric) --
+    Phase 9 hardening: `min(float(nan), cap)` etc. previously "happened to"
+    floor to 1.0 via Python's NaN comparison quirks rather than by explicit,
+    documented intent. `0`, negative values, and absurdly large values are
+    still accepted as *input* but clamped, never rejected outright, since a
+    config typo should degrade to a safe bound, not crash the whole run.
+    """
+    try:
+        numeric = float(value)
+    except (TypeError, ValueError):
+        return default
+    if not math.isfinite(numeric):
+        return default
+    return max(_MIN_BROWSER_TIMEOUT_SECONDS, min(numeric, cap))
+
+
+@dataclass
+class BrowserConfig:
+    """Browser/UI functional testing (Phase 9). Disabled by default and requires
+    an explicit target (skill.md §4.2) -- mirrors `PerformanceConfig`'s shape.
+    Every timeout is hard-capped in `__post_init__` regardless of what a project
+    configures, so a config file alone can never produce an unbounded browser wait.
+    Neither the CLI, GUI, nor an environment variable has any path that bypasses
+    this clamp -- every caller constructs a `BrowserConfig` (directly or via
+    `load_config()`), and this is the only place these fields are ever set.
+    """
+
+    enabled: bool = False
+    browser: str = "chromium"
+    headless: bool = True
+    navigation_timeout_seconds: float = 15.0
+    action_timeout_seconds: float = 10.0
+    test_timeout_seconds: float = 60.0
+    allow_external: bool = False
+    screenshots: bool = False
+
+    def __post_init__(self) -> None:
+        self.navigation_timeout_seconds = _sanitize_timeout_seconds(
+            self.navigation_timeout_seconds, default=15.0, cap=MAX_BROWSER_TIMEOUT_SECONDS,
+        )
+        self.action_timeout_seconds = _sanitize_timeout_seconds(
+            self.action_timeout_seconds, default=10.0, cap=MAX_BROWSER_TIMEOUT_SECONDS,
+        )
+        self.test_timeout_seconds = _sanitize_timeout_seconds(
+            self.test_timeout_seconds, default=60.0, cap=MAX_BROWSER_TEST_TIMEOUT_SECONDS,
+        )
 
 
 @dataclass
@@ -154,6 +212,7 @@ class Config:
     performance: PerformanceConfig = field(default_factory=PerformanceConfig)
     database: DatabaseConfig = field(default_factory=DatabaseConfig)
     security: SecurityConfig = field(default_factory=SecurityConfig)
+    browser: BrowserConfig = field(default_factory=BrowserConfig)
     ai: AIConfig = field(default_factory=AIConfig)
     regression: RegressionConfig = field(default_factory=RegressionConfig)
     quality_gate: QualityGateConfig = field(default_factory=QualityGateConfig)
@@ -167,6 +226,7 @@ _SECTION_TYPES: dict[str, type] = {
     "performance": PerformanceConfig,
     "database": DatabaseConfig,
     "security": SecurityConfig,
+    "browser": BrowserConfig,
     "ai": AIConfig,
     "regression": RegressionConfig,
     "quality_gate": QualityGateConfig,

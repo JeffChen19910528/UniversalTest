@@ -42,6 +42,116 @@
       <div id="project-validation" class="notice hidden"></div>
     </div>
 
+    <!-- Web Assessment: guided one-click workflow (Phase 10) -->
+    <div class="card" id="web-assess-card">
+      <span class="field-label" data-i18n="web_assess_title"></span>
+      <p class="field-hint" data-i18n="web_assess_intro"></p>
+      <button class="btn" id="btn-analyze-web" data-i18n="web_assess_analyze_btn"></button>
+
+      <div id="web-assess-plan" class="hidden" style="margin-top:14px;">
+        <div id="web-assess-detected"></div>
+
+        <div id="web-assess-not-web" class="notice hidden" data-i18n="web_assess_not_web"></div>
+
+        <div id="web-assess-checks" class="hidden">
+          <p class="field-label" data-i18n="web_assess_planned_checks"></p>
+          <ul id="web-assess-planned-list"></ul>
+          <p class="field-label" data-i18n="web_assess_not_included"></p>
+          <ul id="web-assess-not-included-list"></ul>
+
+          <div class="field" style="margin-top:10px;">
+            <label class="field-label" data-i18n="target_label"></label>
+            <input type="url" id="web-target-url" data-i18n-placeholder="target_placeholder">
+            <p class="field-hint" data-i18n="target_hint"></p>
+          </div>
+
+          <div id="web-external-warning" class="confirm-box hidden">
+            <p data-i18n="web_external_warning_title"></p>
+            <p class="field-hint" id="web-external-warning-target"></p>
+            <div class="checkbox-row">
+              <input type="checkbox" id="chk-web-allow-external">
+              <label for="chk-web-allow-external" data-i18n="web_external_warning_confirm"></label>
+            </div>
+          </div>
+
+          <div class="confirm-box" id="web-browser-confirm-box">
+            <p data-i18n="web_browser_confirm_intro"></p>
+            <ul>
+              <li data-i18n="web_browser_confirm_may_1"></li>
+              <li data-i18n="web_browser_confirm_may_2"></li>
+              <li data-i18n="web_browser_confirm_may_3"></li>
+              <li data-i18n="web_browser_confirm_may_4"></li>
+            </ul>
+            <p data-i18n="web_browser_confirm_never_intro"></p>
+            <ul>
+              <li data-i18n="web_browser_confirm_never_1"></li>
+              <li data-i18n="web_browser_confirm_never_2"></li>
+              <li data-i18n="web_browser_confirm_never_3"></li>
+              <li data-i18n="web_browser_confirm_never_4"></li>
+            </ul>
+            <div class="checkbox-row">
+              <input type="checkbox" id="chk-web-confirm">
+              <label for="chk-web-confirm" data-i18n="browser_confirm_checkbox"></label>
+            </div>
+            <div class="checkbox-row">
+              <input type="checkbox" id="chk-web-screenshots">
+              <label for="chk-web-screenshots" data-i18n="browser_screenshots"></label>
+            </div>
+          </div>
+
+          <button class="btn primary big" id="btn-start-web-assess" data-i18n="web_assess_start_btn" disabled></button>
+          <p class="field-hint" id="web-assess-start-hint" data-i18n="web_assess_no_target_hint"></p>
+        </div>
+      </div>
+    </div>
+
+    <!-- Web Scenarios: explicit, repeatable multi-step workflows (Phase 11) -->
+    <div class="card" id="web-scenarios-card">
+      <span class="field-label" data-i18n="scenarios_title"></span>
+      <p class="field-hint" data-i18n="scenarios_intro"></p>
+      <button class="btn" id="btn-list-scenarios" data-i18n="scenarios_list_btn"></button>
+
+      <div id="scenarios-list" class="hidden" style="margin-top:12px;"></div>
+      <div id="scenarios-none" class="notice hidden" data-i18n="scenarios_none_found"></div>
+
+      <div id="scenario-detail" class="hidden" style="margin-top:14px;">
+        <h4 id="scenario-detail-name"></h4>
+        <p class="field-hint" id="scenario-detail-description"></p>
+        <ol id="scenario-detail-steps"></ol>
+
+        <div class="field" style="margin-top:10px;">
+          <label class="field-label" data-i18n="target_label"></label>
+          <input type="url" id="scenario-target-url" data-i18n-placeholder="target_placeholder">
+        </div>
+
+        <div id="scenario-external-warning" class="confirm-box hidden">
+          <p data-i18n="web_external_warning_title"></p>
+          <div class="checkbox-row">
+            <input type="checkbox" id="chk-scenario-allow-external">
+            <label for="chk-scenario-allow-external" data-i18n="web_external_warning_confirm"></label>
+          </div>
+        </div>
+
+        <div class="confirm-box" id="scenario-confirm-box">
+          <p data-i18n="web_browser_confirm_intro"></p>
+          <div class="checkbox-row">
+            <input type="checkbox" id="chk-scenario-confirm">
+            <label for="chk-scenario-confirm" data-i18n="browser_confirm_checkbox"></label>
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button class="btn" id="btn-dry-run-scenario" data-i18n="scenarios_dry_run_btn"></button>
+          <button class="btn primary" id="btn-run-scenario" data-i18n="scenarios_run_btn" disabled></button>
+        </div>
+
+        <div id="scenario-plan" class="hidden" style="margin-top:10px;"></div>
+        <div id="scenario-result" class="hidden" style="margin-top:14px;"></div>
+      </div>
+    </div>
+
+    <h3 class="section-divider" data-i18n="full_assessment_title"></h3>
+
     <div class="card">
       <span class="field-label" data-i18n="target_label"></span>
       <input type="url" id="target-url" data-i18n-placeholder="target_placeholder">
@@ -78,6 +188,25 @@
         <div class="path-row">
           <input type="text" id="database-profile-path" readonly data-i18n-placeholder="database_profile_placeholder">
           <button class="btn" id="btn-pick-database-profile" data-i18n="choose_file"></button>
+        </div>
+      </div>
+      <div class="checkbox-row">
+        <input type="checkbox" id="chk-browser">
+        <label for="chk-browser" data-i18n="chk_browser"></label>
+      </div>
+      <div id="browser-confirm-box" class="confirm-box hidden">
+        <p data-i18n="browser_warning"></p>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chk-browser-confirm">
+          <label for="chk-browser-confirm" data-i18n="browser_confirm_checkbox"></label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chk-browser-allow-external">
+          <label for="chk-browser-allow-external" data-i18n="browser_allow_external"></label>
+        </div>
+        <div class="checkbox-row">
+          <input type="checkbox" id="chk-browser-screenshots">
+          <label for="chk-browser-screenshots" data-i18n="browser_screenshots"></label>
         </div>
       </div>
 

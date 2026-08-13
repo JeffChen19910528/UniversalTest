@@ -229,6 +229,69 @@ class FunctionalSnapshot:
 
 
 @dataclass(frozen=True)
+class BrowserTestEntry:
+    id: str
+    status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "status": self.status}
+
+
+@dataclass(frozen=True)
+class BrowserSnapshot:
+    """Mirrors `FunctionalSnapshot` (Phase 9): per-test-ID PASS/FAIL/ERROR
+    identity comparison, no numeric score (spec section 38)."""
+
+    target: str | None
+    browser: str | None
+    summary: dict[str, int]
+    tests: list[BrowserTestEntry] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "target": self.target, "browser": self.browser,
+            "summary": self.summary, "tests": [t.to_dict() for t in self.tests],
+        }
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "BrowserSnapshot":
+        return BrowserSnapshot(
+            target=data.get("target"), browser=data.get("browser"),
+            summary=dict(data.get("summary", {})),
+            tests=[BrowserTestEntry(id=t["id"], status=t["status"]) for t in data.get("tests", [])],
+        )
+
+
+@dataclass(frozen=True)
+class ScenarioTestEntry:
+    id: str
+    status: str
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"id": self.id, "status": self.status}
+
+
+@dataclass(frozen=True)
+class ScenarioSnapshot:
+    """Mirrors `BrowserSnapshot` (Phase 11): per-scenario-ID PASS/FAIL/ERROR
+    identity comparison, no numeric score (spec section 36) -- scenario IDs
+    are the stable identity, not individual step IDs."""
+
+    summary: dict[str, int]
+    tests: list[ScenarioTestEntry] = field(default_factory=list)
+
+    def to_dict(self) -> dict[str, Any]:
+        return {"summary": self.summary, "tests": [t.to_dict() for t in self.tests]}
+
+    @staticmethod
+    def from_dict(data: dict[str, Any]) -> "ScenarioSnapshot":
+        return ScenarioSnapshot(
+            summary=dict(data.get("summary", {})),
+            tests=[ScenarioTestEntry(id=t["id"], status=t["status"]) for t in data.get("tests", [])],
+        )
+
+
+@dataclass(frozen=True)
 class PerformanceLevelSnapshot:
     concurrency: int
     metrics: dict[str, float | int | None]
@@ -345,6 +408,8 @@ class BaselineSnapshot:
     performance: PerformanceSnapshot | None
     database: DatabaseSnapshot | None
     assessment: AssessmentSnapshot
+    browser: BrowserSnapshot | None = None  # Phase 9 - optional so old baselines (no "browser" key) still load
+    scenario: ScenarioSnapshot | None = None  # Phase 11 - optional, same reason
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -358,6 +423,8 @@ class BaselineSnapshot:
             "performance": self.performance.to_dict() if self.performance else None,
             "database": self.database.to_dict() if self.database else None,
             "assessment": self.assessment.to_dict(),
+            "browser": self.browser.to_dict() if self.browser else None,
+            "scenario": self.scenario.to_dict() if self.scenario else None,
         }
 
     @staticmethod
@@ -372,5 +439,7 @@ class BaselineSnapshot:
             functional=FunctionalSnapshot.from_dict(data["functional"]) if data.get("functional") else None,
             performance=PerformanceSnapshot.from_dict(data["performance"]) if data.get("performance") else None,
             database=DatabaseSnapshot.from_dict(data["database"]) if data.get("database") else None,
+            browser=BrowserSnapshot.from_dict(data["browser"]) if data.get("browser") else None,
+            scenario=ScenarioSnapshot.from_dict(data["scenario"]) if data.get("scenario") else None,
             assessment=AssessmentSnapshot.from_dict(data.get("assessment", {"overall_status": "unknown", "categories": []})),
         )

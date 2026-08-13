@@ -7,23 +7,15 @@ against anything else, or implicitly approved for a future "Phase 9". Each
 entry needs its own explicit go-ahead and its own scoped brief before any
 implementation starts, per every phase's stop condition so far.
 
-## Browser/UI adapter
+## Browser/UI adapter — implemented (Phase 9)
 
-- **Purpose**: extend functional testing to browser-driven UIs (page
-  discovery, navigation, form interaction, failure screenshots), not just
-  REST APIs.
-- **Possible value**: covers projects whose primary surface is a web UI
-  rather than an API — a large class of projects V1 currently can't test.
-- **Major risks**: browser automation is inherently harder to keep
-  conservative/safe-by-default than REST testing (arbitrary JS execution
-  on the page, file uploads, navigation to unintended URLs); a new,
-  heavier dependency (Playwright, per `skill.md` §15's preference); much
-  larger safety-review surface than any adapter shipped so far.
-- **Dependency**: Playwright (or equivalent) — a new runtime dependency
-  class, unlike every V1 adapter's minimal-dependency footprint.
-- **Why deferred**: explicitly out of V1 scope per every phase brief's
-  stop condition; needs its own dedicated safety design (what "read-only"
-  even means for a live UI) before implementation.
+Implemented after this backlog entry was written; see
+`docs/BROWSER_TESTING.md`/`docs/BROWSER_SAFETY.md` and `ARCHITECTURE.md`
+§17 for what was actually built (Playwright-based, optional dependency,
+explicit-target-only safety policy, no auto-granted permissions, no
+arbitrary JS execution, full Assessment/Reporting/Quality Gate/Regression
+integration). Entry kept here only as a historical record of the original
+risk assessment.
 
 ## GraphQL adapter
 

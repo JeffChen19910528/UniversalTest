@@ -20,6 +20,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Callable
 
+from universal_test.adapters.browser.models import BrowserRunResult
 from universal_test.adapters.database import discover as db_discover
 from universal_test.adapters.database import load_database_profile
 from universal_test.adapters.database.adapter import DatabaseDiscoveryResult
@@ -34,6 +35,7 @@ from universal_test.application.events import (
     PHASE_SKIPPED,
     PHASE_STARTED,
     STAGE_ASSESSMENT,
+    STAGE_BROWSER_TEST,
     STAGE_DATABASE_ASSESSMENT,
     STAGE_FUNCTIONAL_TEST,
     STAGE_PERFORMANCE_TEST,
@@ -85,6 +87,14 @@ class AssessmentRequest:
     run_database: bool = False
     database_profile_path: str | None = None
 
+    run_browser: bool = False
+    # Explicit GUI checkbox confirmation, same shape as `performance_confirmed`
+    # (Phase 9 spec section 30: no equivalent of --yes silently implied by the GUI).
+    browser_confirmed: bool = False
+    browser_target: str | None = None
+    browser_allow_external: bool = False
+    browser_screenshots: bool = False
+
     baseline_path: str | None = None
     output_dir: str | None = None
     report_formats: list[str] = field(default_factory=lambda: ["json", "markdown", "html"])
@@ -117,6 +127,8 @@ class AssessmentOutcome:
     perf_result: PerformanceResult | None
     performance_not_run_reason: str | None
     database_result: DatabaseDiscoveryResult | None
+    browser_result: BrowserRunResult | None
+    browser_not_run_reason: str | None
     assessment: ProjectAssessment
     regression: RegressionSummary | None
     quality_gate: QualityGateResult
@@ -161,6 +173,7 @@ def run_assessment(
     generated_count, run_result, functional_not_run_reason = _run_functional(request, auth_config, on_event)
     perf_result, performance_not_run_reason = _run_performance(request, config, auth_config, on_event)
     database_result = _run_database(request, on_event)
+    browser_result, browser_not_run_reason = _run_browser(request, config, on_event)
 
     _emit(on_event, STAGE_ASSESSMENT, PHASE_STARTED, "Aggregating assessment")
     assessment = build_assessment(
@@ -168,6 +181,7 @@ def run_assessment(
         run_result=run_result, functional_not_run_reason=functional_not_run_reason,
         perf_result=perf_result, performance_not_run_reason=performance_not_run_reason,
         has_confirmed_openapi=has_confirmed_openapi, database_result=database_result,
+        browser_result=browser_result, browser_not_run_reason=browser_not_run_reason,
     )
     _emit(on_event, STAGE_ASSESSMENT, PHASE_COMPLETED, "Assessment complete", overall_status=assessment.overall_status.value)
 
@@ -178,6 +192,7 @@ def run_assessment(
         current_snapshot = build_snapshot(
             project_path=request.project_path, target=request.target, model=model, generated_count=generated_count,
             run_result=run_result, perf_result=perf_result, database_result=database_result, assessment=assessment,
+            browser_result=browser_result,
         )
         thresholds = dict(config.regression.performance) if config.regression.performance else {}
         regression = regression_compare(baseline_snapshot, current_snapshot, performance_thresholds=thresholds)
@@ -189,6 +204,7 @@ def run_assessment(
     bundle = AssessReportBundle(
         assessment=assessment, model=model, run_result=run_result, generated_count=generated_count,
         perf_result=perf_result, database_result=database_result, regression=regression, quality_gate=quality_gate,
+        browser_result=browser_result,
     )
 
     _emit(on_event, STAGE_REPORT_GENERATION, PHASE_STARTED, "Generating reports")
@@ -198,7 +214,8 @@ def run_assessment(
     return AssessmentOutcome(
         model=model, run_result=run_result, functional_not_run_reason=functional_not_run_reason,
         perf_result=perf_result, performance_not_run_reason=performance_not_run_reason,
-        database_result=database_result, assessment=assessment, regression=regression,
+        database_result=database_result, browser_result=browser_result, browser_not_run_reason=browser_not_run_reason,
+        assessment=assessment, regression=regression,
         quality_gate=quality_gate, bundle=bundle, report_paths=report_paths,
     )
 
@@ -292,6 +309,45 @@ def _run_database(request: AssessmentRequest, on_event: OnEvent | None):
     result = db_discover(profile)
     _emit(on_event, STAGE_DATABASE_ASSESSMENT, PHASE_COMPLETED, "Database assessment complete")
     return result
+
+
+def _run_browser(request: AssessmentRequest, config: Config, on_event: OnEvent | None):
+    """Returns `(browser_result, not_run_reason)`. Gated on `run_browser` AND
+    `browser_target` AND the explicit GUI confirmation checkbox
+    (`browser_confirmed`) -- the same triple-gate shape as `_run_performance`'s
+    `performance_confirmed` gate (spec section 30/34-35: no equivalent of
+    `--yes` may be silently implied by the GUI).
+    """
+    if not request.run_browser:
+        _emit(on_event, STAGE_BROWSER_TEST, PHASE_SKIPPED, "browser testing was not enabled")
+        return None, "browser testing was not enabled"
+    if not request.browser_target:
+        _emit(on_event, STAGE_BROWSER_TEST, PHASE_SKIPPED, "no execution target was provided")
+        return None, "no execution target was provided"
+    if not request.browser_confirmed:
+        _emit(on_event, STAGE_BROWSER_TEST, PHASE_SKIPPED, "browser testing requires explicit user confirmation")
+        return None, "browser testing requires explicit user confirmation"
+
+    _emit(on_event, STAGE_BROWSER_TEST, PHASE_STARTED, "Running browser/UI test", target=request.browser_target)
+    from universal_test.adapters.browser.adapter import run as browser_run
+
+    result = browser_run(
+        request.project_path, target=request.browser_target, allow_external=request.browser_allow_external,
+        browser=config.browser.browser, headless=config.browser.headless,
+        navigation_timeout_seconds=config.browser.navigation_timeout_seconds,
+        action_timeout_seconds=config.browser.action_timeout_seconds,
+        test_timeout_seconds=config.browser.test_timeout_seconds,
+        screenshots=request.browser_screenshots,
+    )
+    if result.not_assessed_reason:
+        _emit(on_event, STAGE_BROWSER_TEST, PHASE_SKIPPED, result.not_assessed_reason)
+        return None, result.not_assessed_reason
+    if not result.executed:
+        _emit(on_event, STAGE_BROWSER_TEST, PHASE_FAILED, result.no_target_reason or "browser testing did not execute")
+        return None, result.no_target_reason or "browser testing did not execute"
+
+    _emit(on_event, STAGE_BROWSER_TEST, PHASE_COMPLETED, "Browser test complete", summary=result.run_result.summary)
+    return result, None
 
 
 def _write_reports(bundle: AssessReportBundle, output_dir: str | None, formats: list[str]) -> dict[str, str]:

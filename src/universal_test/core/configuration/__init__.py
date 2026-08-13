@@ -3,6 +3,7 @@
 from universal_test.core.configuration.config import (
     AIConfig,
     AssessmentConfig,
+    BrowserConfig,
     Config,
     DatabaseConfig,
     FunctionalConfig,
@@ -15,6 +16,7 @@ from universal_test.core.configuration.config import (
 __all__ = [
     "AIConfig",
     "AssessmentConfig",
+    "BrowserConfig",
     "Config",
     "DatabaseConfig",
     "FunctionalConfig",

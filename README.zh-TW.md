@@ -65,9 +65,10 @@ universal-test gui
 這個指令會在 `127.0.0.1`（僅限本機，網路上其他電腦絕對無法連線）啟動一個伺服器，並自動開啟你的預設瀏覽器。接下來你可以：
 
 1. **選擇專案資料夾**——點選「選擇資料夾」，挑選你想檢查的專案。
-2. **測試目標（選填）**——如果你有一個正在執行中的服務（例如 `http://localhost:8000`），在此輸入其位址。留空的話，Universal Test 不會對外發送任何流量，只會分析專案原始碼。
-3. **選擇檢查項目**——預設會開啟「專案分析與功能測試」；「效能測試」與「資料庫檢查」預設關閉，只有你主動勾選才會執行。效能測試需要額外勾選一個確認方塊（因為會對測試目標送出真實流量）；資料庫檢查需要在「進階設定」中提供資料庫設定檔，且一律唯讀連線。
-4. 點選「**開始專案健檢**」。
+2. **（網頁專案）使用「網頁應用程式健檢」卡片**——點選「分析專案並產生健檢計畫」，即可看到偵測結果與即將執行／不包含的項目，確認後一鍵執行；不需要理解下方「完整健檢」表單中的各種勾選項目。
+3. **測試目標（選填）**——如果你有一個正在執行中的服務（例如 `http://localhost:8000`），在此輸入其位址。留空的話，Universal Test 不會對外發送任何流量，只會分析專案原始碼。
+4. **選擇檢查項目（完整健檢）**——預設會開啟「專案分析與功能測試」；「效能測試」與「資料庫檢查」預設關閉，只有你主動勾選才會執行。效能測試需要額外勾選一個確認方塊（因為會對測試目標送出真實流量）；資料庫檢查需要在「進階設定」中提供資料庫設定檔，且一律唯讀連線。
+5. 點選「**開始專案健檢**」。
 5. 觀看進度畫面——每個步驟都以白話文說明。只有在你提供了 baseline 檔案時，畫面才會出現「比較 Baseline（回歸檢查）」這個步驟；沒有提供的話，這個步驟不會出現，因為它本來就不會執行。
 6. 檢視**健檢結果**：
    - 整體狀態：🟢 通過／🟡 需要注意／🔴 發現問題／⚪ 無法評估——刻意不提供數字分數。
@@ -190,6 +191,43 @@ universal-test database ./my-project --database-profile ./database.yaml
 
 `--dry-run` 完全不會開啟任何連線——只會印出計畫內容（引擎、主機、固定的唯讀操作清單、"Mode: READ ONLY"）。缺少對應的資料庫驅動程式（例如 SQL Server 所需的 `pyodbc`）時，結果會降級為 `NOT_ASSESSED` 並附上安裝提示，絕不會導致程式崩潰。
 
+### `browser`（第九階段，新增）
+
+真正的、有邊界的、需要明確授權的瀏覽器／UI 測試（選用套件 `pip install universal-test[browser]`）。預設關閉——即使偵測到前端專案，也不會自動啟動瀏覽器。
+
+```bash
+universal-test browser install                                   # 明確、一次性下載瀏覽器執行檔
+universal-test browser test ./my-site --target http://localhost:8080 --dry-run
+universal-test browser test ./my-site --target http://localhost:8080 --yes
+```
+
+不會掃描連接埠、不會猜測目標網址。預設只允許 `localhost`／`127.0.0.1`／`::1`／`file://`；其他網址需要明確加上 `--allow-external`。不會猜測帳號密碼，不會自動授予瀏覽器權限（麥克風／攝影機／地理位置），不會執行任意 JavaScript。詳見 `docs/BROWSER_TESTING.md` 與 `docs/BROWSER_SAFETY.md`（目前為英文文件）。
+
+### `web assess`（第十階段，新增）
+
+專為非工程師設計的一鍵網頁健檢：專案結構分析＋前端靜態分析＋瀏覽器基本操作測試＋報告，不需要理解 `scan`／`assess`／`browser test` 這些各自獨立的指令。這只是套用在**同一個** `assess` 管線之上的安全預設組合——不是第二套引擎——範圍限定於靜態分析與瀏覽器測試（不含效能／資料庫測試）。
+
+```bash
+universal-test web assess ./my-site --target http://localhost:8080 --dry-run
+universal-test web assess ./my-site --target http://localhost:8080 --yes
+universal-test web assess ./my-site   # 未提供目標：只執行靜態分析，瀏覽器測試會顯示「尚未評估」
+```
+
+GUI 也提供相同的引導式流程，以「網頁應用程式健檢」卡片呈現：選擇專案後點選「分析專案並產生健檢計畫」，即可看到偵測結果（靜態網站／框架前端／全端網頁應用程式，或「沒有偵測到網頁前端」）以及即將執行與不包含的項目，確認後才會開始執行。詳見 `docs/BROWSER_TESTING.md`（目前為英文文件）。
+
+### `browser scenario`（第十一階段，新增）
+
+明確的、使用者自行定義、可重複執行的多步驟網頁操作流程——例如「先登入，再確認出現儀表板」，而不只是單一的煙霧測試。定義於一個 YAML 檔案中（預設 `universal-test-web.yaml`），不是第二套測試引擎：每個步驟都重複使用 `browser test` 已有的操作／斷言／選擇器。
+
+```bash
+universal-test browser scenario list ./my-site
+universal-test browser scenario validate ./my-site
+universal-test browser scenario run ./my-site --scenario login-smoke --target http://localhost:3000 --dry-run
+universal-test browser scenario run ./my-site --scenario login-smoke --target http://localhost:3000 --yes
+```
+
+機密資料請使用 `value_env: TEST_PASSWORD`（環境變數的「參照」），絕不在檔案中寫入明文密碼——只有在真正執行時才會解析該環境變數，`list`／`validate`／`--dry-run` 期間絕不解析，報告與記錄中也絕不會出現實際值。步驟會依序執行，一旦某個步驟未通過就會停止；`assess --scenario <id> --target ... --yes` 會將結果併入統一報告中的「網頁情境測試（Web Scenarios）」分類。詳見 `docs/WEB_SCENARIOS.md`（目前為英文文件）。
+
 ### `assess`
 
 將探索、功能性測試、效能測試、資料庫、回歸比較的結果整合成一份以證據為基礎的報告：包含整體 `PASS/WARNING/FAIL/UNKNOWN` 狀態、逐分類的發現項目、覆蓋率，以及明確的 Unknown/Not-Assessed（未知／未評估）章節。
@@ -198,6 +236,7 @@ universal-test database ./my-project --database-profile ./database.yaml
 universal-test assess ./my-project
 universal-test assess ./my-project --target http://localhost:8000
 universal-test assess ./my-project --target http://localhost:8000 --performance --yes
+universal-test assess ./my-project --target http://localhost:8000 --browser --yes
 universal-test assess ./my-project --database-profile ./database.yaml
 universal-test assess ./my-project --format json --output ./reports
 ```
@@ -313,7 +352,7 @@ database:
 
 - **`WARNING` 不代表「壞掉了」。** 它可能只是代表可測試性上的限制（例如沒有偵測到自動化測試框架）或評估不完整，不必然代表應用程式本身有缺陷。每一項發現都會額外標示 `classification`（`defect`／`testability_gap`／`not_assessed`／`informational`／`execution_failure`），讓你能分辨屬於哪一種。報告與 GUI 中都會另外顯示「應用程式健康度（Application Health）」，它只反映真正「執行過」的項目（功能／效能測試）——顯示綠色代表沒有發現確認的缺陷，即使其他分類因缺少測試工具而顯示 WARNING 也一樣。
 - **`NOT_ASSESSED` 既不是 `PASS` 也不是 `FAIL`。** 代表這次執行沒有進行該項評估（例如沒提供目標網址、沒啟用效能測試、沒設定資料庫連線設定），不代表成功或失敗。
-- **靜態分析只能偵測「能力」與「證據」，無法證明實際執行時的行為。** 偵測到某個瀏覽器 API、表單或互動元素，只代表程式碼中存在這段內容，不代表實際執行時一定正常運作——這正是為什麼「瀏覽器／UI 執行」在真正的瀏覽器測試模組出現之前，永遠會顯示為 `NOT_ASSESSED`。
+- **靜態分析只能偵測「能力」與「證據」，無法證明實際執行時的行為。** 偵測到某個瀏覽器 API、表單或互動元素，只代表程式碼中存在這段內容，不代表實際執行時一定正常運作——這正是為什麼「瀏覽器／UI 執行」與靜態前端分析分開報告：除非你明確加上 `assess --browser --target ... --yes`（或使用 `universal-test browser test`），否則永遠顯示為 `NOT_ASSESSED`。
 - **品質關卡 `PASS` 代表沒有任何已設定的關卡規則失敗**，不代表整個應用程式已被驗證正確；**`FAIL`** 代表有一項已設定的條件失敗，詳情列在其下方的發現項目中。
 
 ## 回歸比較
@@ -384,7 +423,8 @@ feature 分支  ---->  universal-test assess . --ci --yes --target <url> --basel
 ## 支援的技術
 
 - **探索（Discovery）**：12 種以上程式語言、常見框架（FastAPI、Django、Flask、Express、ASP.NET Core、Spring Boot、Laravel、React、Angular、Vue 等）、Docker／Compose／Kubernetes／GitHub Actions／GitLab CI／Jenkins／Azure Pipelines 證據、6 種資料庫、OpenAPI／Swagger／GraphQL／REST 路由證據、常見測試框架。
-- **前端／網頁應用程式分析**：React、Next.js、Vue、Nuxt、Angular、Svelte、SvelteKit、Solid、Astro；Vite／Webpack／Rollup／Turbopack／Angular CLI 建置工具；Jest／Vitest／Mocha／Karma／Jasmine／Testing Library 單元測試框架，以及 Playwright／Cypress／WebdriverIO／Puppeteer 瀏覽器自動化框架；有邊界的路由／元件／表單／API 呼叫證據掃描。**純靜態 HTML／CSS／JavaScript 網站也支援**——不需要 `package.json` 或任何建置工具——包含內嵌／外部 CSS／JS 數量、進入點偵測、導覽連結／表單／API 呼叫／響應式設計／登入介面等結構性證據，以及常見 CSS 框架偵測（Bootstrap／Tailwind／Bulma／Foundation），還有互動元件證據、瀏覽器 API 偵測（麥克風、語音合成、儲存空間、WebSocket 等）、應用程式型態推測（多頁靜態網站／單頁應用程式／靜態文件）、外部資源證據與 CSP 證據，讓單一檔案但內容豐富的網頁應用程式不會被誤判為「沒有 CSS／JS」。僅涵蓋探索與可測試性評估——**不包含**瀏覽器／UI 實際執行（詳見 [`docs/FRONTEND_ANALYSIS.md`](docs/FRONTEND_ANALYSIS.md)，目前為英文文件）。
+- **前端／網頁應用程式分析**：React、Next.js、Vue、Nuxt、Angular、Svelte、SvelteKit、Solid、Astro；Vite／Webpack／Rollup／Turbopack／Angular CLI 建置工具；Jest／Vitest／Mocha／Karma／Jasmine／Testing Library 單元測試框架，以及 Playwright／Cypress／WebdriverIO／Puppeteer 瀏覽器自動化框架；有邊界的路由／元件／表單／API 呼叫證據掃描。**純靜態 HTML／CSS／JavaScript 網站也支援**——不需要 `package.json` 或任何建置工具——包含內嵌／外部 CSS／JS 數量、進入點偵測、導覽連結／表單／API 呼叫／響應式設計／登入介面等結構性證據，以及常見 CSS 框架偵測（Bootstrap／Tailwind／Bulma／Foundation），還有互動元件證據、瀏覽器 API 偵測（麥克風、語音合成、儲存空間、WebSocket 等）、應用程式型態推測（多頁靜態網站／單頁應用程式／靜態文件）、外部資源證據與 CSP 證據，讓單一檔案但內容豐富的網頁應用程式不會被誤判為「沒有 CSS／JS」。靜態探索與可測試性評估一律會執行；瀏覽器／UI 實際執行則是另一項需要明確加上 `--browser` 才會啟動的功能（詳見 [`docs/FRONTEND_ANALYSIS.md`](docs/FRONTEND_ANALYSIS.md) 與 [`docs/BROWSER_TESTING.md`](docs/BROWSER_TESTING.md)，目前為英文文件）。
+- **瀏覽器／UI 功能測試**：透過 Playwright 支援 Chromium／Firefox／WebKit（選用套件 `[browser]`）。只能測試明確指定的目標，支援有邊界的 navigate／click／fill／select／check／uncheck／press／wait_for 操作，role／label／text／placeholder／test_id／css 選擇器，以及可見性／文字／網址／標題／元素數量／屬性／輸入值／勾選／啟用／停用等斷言。所有地方預設皆為關閉。
 - **功能性／效能測試**：OpenAPI 3.x 規格的 REST API。
 - **資料庫評估**：SQL Server、PostgreSQL、MySQL、SQLite。
 - **CI**：任何能執行 shell 指令並檢查 exit code 的 CI 系統——GitHub Actions、GitLab CI 與 Jenkins 已提供現成範本。
@@ -399,7 +439,7 @@ feature 分支  ---->  universal-test assess . --ci --yes --target <url> --basel
 - 不能證明軟體已可上線（production ready）。
 - 不能證明測試覆蓋率完整。
 - 不是安全掃描工具，也不是弱點偵測工具。
-- 不是瀏覽器／UI 自動化框架。
+- 不是通用的瀏覽器／UI 自動化框架——瀏覽器測試僅支援一個保守的煙霧測試，加上一組有限、明確的操作／斷言詞彙，不支援任意流程自動化、視覺回歸比對或無障礙稽核。
 - 不是 AI 驅動或自主（autonomous）的測試代理人——所有結果皆完全具確定性；本工具中沒有任何 AI／LLM 元件。
 - 不是模糊測試（fuzzing）框架——功能性測試是保守的，僅根據文件中明確記載的範例／預設值／schema 產生。
 - 不支援 Swagger 2.0 文件（僅支援 OpenAPI 3.x）。
@@ -428,6 +468,7 @@ python -m pytest -q
 | `docs/V1_HARDENING_AUDIT.md` | 發布前的架構／安全性稽核紀錄。 |
 | `docs/V1_RELEASE.md` | V1.0 發布清單（release manifest）。 |
 | `docs/POST_V1_BACKLOG.md` | V1 之後的候選方向清單（尚未承諾實作）。 |
+| `docs/WEB_CAPABILITY_FREEZE.md` | 已凍結（frozen）的 Web 能力（Phase 9-11）規範範圍——包含／明確不包含項目。 |
 
 ### 架構總覽
 

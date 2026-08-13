@@ -150,9 +150,9 @@ explicit `--openapi <path>`), the tool:
 Output: `--format text|json|markdown` to stdout or `--output <path>`, for
 both dry-run and executed runs.
 
-Other adapters (browser, GraphQL, .NET/Node/Python project adapters) are
-Phase 9+. REST/OpenAPI (Phase 3) and the read-only database adapter
-(Phase 6, §4.9) are implemented.
+Other adapters (GraphQL, .NET/Node/Python project adapters) remain
+unimplemented. REST/OpenAPI (Phase 3), the read-only database adapter
+(Phase 6, §4.9), and the browser adapter (Phase 9, §4.14) are implemented.
 
 ### 4.4 Assertion engine (Phase 1, extended per-adapter later)
 
@@ -533,7 +533,7 @@ universal-test assess <path>
 ```
 
 Discovery + testability assessment only — **not** browser/UI execution
-(that remains the unimplemented Phase 9 Browser Adapter). See
+(see §4.13, the Phase 9 Browser Adapter, for that). See
 `docs/FRONTEND_ANALYSIS.md` for the full detail; summary:
 
 - **Detection.** React, Next.js, Vue, Nuxt, Angular, Svelte, SvelteKit,
@@ -567,27 +567,6 @@ Discovery + testability assessment only — **not** browser/UI execution
 - **Explicitly not built this phase**: no Playwright/Selenium execution,
   no visual regression, no AI test generation, no security/CVE scanning,
   no GraphQL/gRPC support.
-
-**Static Web Analysis extension (same phase, follow-up enhancement).** A
-project needs no `package.json`, lockfile, or config file at all to be
-recognized as a frontend — a plain static HTML/CSS/JavaScript website is a
-first-class `FrontendType.STATIC_WEB`, not a degraded fallback of the
-framework case. Classification (`STATIC_WEB`/`FRAMEWORK_WEB`/
-`FULL_STACK_WEB`/`UNKNOWN_WEB`) always gives framework/config evidence
-precedence over a static-HTML guess — a React project's own `index.html`
-never reclassifies it as Static Web. Conservative false-positive guards
-(brief §20) keep generated documentation (`docs/`), code-coverage reports
-(`coverage/`/`htmlcov/`, excluded from discovery entirely), and
-server-rendered backend templates (`templates/`) from being misclassified
-as a standalone static frontend — a lone HTML file in one of those
-locations with no supporting CSS/JS is not detected as a frontend at all.
-Detected static sites additionally report HTML/CSS/JS file counts, entry
-point(s) (or an explicit "multiple web roots" note for monorepos),
-navigation-link evidence, form/API-client/responsive-design/
-authentication-UI structural evidence, and known CSS framework evidence
-(Bootstrap/Tailwind/Bulma/Foundation, matched by filename/link, never by
-an arbitrary class name) — all bounded, offline, and never executing any
-HTML/CSS/JavaScript. See `docs/FRONTEND_ANALYSIS.md`.
 
 ### 4.13 Static Web Capability Detection & Assessment Semantics Hardening (same phase, follow-up)
 
@@ -636,6 +615,200 @@ See `docs/FRONTEND_ANALYSIS.md` and `ARCHITECTURE.md` §16.8 for the full
 detail, including the precise rule `compute_application_health` uses and
 why it's a category whitelist rather than a classification-based
 aggregation.
+
+### 4.14 Browser / Web UI Functional Testing (Phase 9 — implemented)
+
+```
+universal-test browser install [--engine chromium|firefox|webkit]
+universal-test browser test <path> --target <url> [--allow-external] [--screenshots] [--dry-run] [--yes]
+universal-test assess <path> --target <url> --browser [--allow-external] [--screenshots] --yes
+```
+
+Real, bounded, explicitly-authorized browser execution on top of §4.12's
+`FrontendInfo` discovery evidence. See `docs/BROWSER_TESTING.md`/
+`docs/BROWSER_SAFETY.md` for full detail; summary:
+
+- **Optional dependency, explicit binary install.** `playwright` is an
+  optional `[browser]` extra; the base install and every other capability
+  work with zero of it present. The browser binary itself is downloaded
+  only by the explicit `browser install` subcommand — never during `scan`,
+  `assess`, or GUI startup.
+- **Disabled by default everywhere.** A detected frontend never triggers
+  browser execution; `assess` requires `--browser` AND `--target` AND
+  (`--yes` or an interactive confirmation); the GUI requires an explicit
+  confirmation checkbox in addition to the feature checkbox.
+- **Explicit target, target safety policy.** `localhost`/`127.0.0.1`/
+  `::1`/`file://` allowed by default; any other target requires
+  `--allow-external`. No port scanning, no guessed targets, no following
+  URLs found in scanned content.
+- **No second test engine.** Reuses the existing `TestEngine`/
+  `AssertionEngine`/`Orchestrator` unmodified — browser-specific assertion
+  evaluators are registered on a dedicated `AssertionEngine` instance,
+  never the shared REST/DB default.
+- **Conservative default smoke test**: navigate, assert page loaded,
+  assert title exists, capture console/page-error/network-failure
+  evidence — never clicks, submits a form, uploads a file, or requests a
+  browser permission automatically, even when static analysis detected
+  those capabilities on the page.
+- **Explicit test definitions** support a fixed action set (`navigate`/
+  `click`/`fill`/`select`/`check`/`uncheck`/`press`/`wait_for`), robust
+  selectors (`role`/`label`/`text`/`placeholder`/`test_id`/`css`), and a
+  fixed assertion set (`visible`/`hidden`/`text_contains`/`text_equals`/
+  `url_equals`/`url_contains`/`page_title`/`element_count`/
+  `attribute_equals`/`input_value`/`checked`/`enabled`/`disabled`/
+  `console_summary`). No arbitrary JavaScript execution is exposed.
+- **Fresh isolation, no auto-granted permissions.** One fresh browser
+  context per run (no cookie/storage/cache reuse across runs); microphone/
+  camera/geolocation/notifications/clipboard permissions are never
+  auto-granted; browser storage (localStorage/sessionStorage/cookies/
+  IndexedDB) is never read into evidence.
+- **Failure classification**: `PASS` (assertions passed), `FAIL` (an
+  assertion failed), `ERROR` (target unreachable/selector ambiguous or
+  missing/timeout — infrastructure evidence, not proof of a defect),
+  `NOT_ASSESSED` (browser missing, or testing not requested).
+- **Redaction reuse.** Console/network/element evidence passes through the
+  existing `core/redaction.py` before becoming part of any result/report —
+  no second redaction system.
+- **Bounded timeouts, guaranteed cleanup.** Every timeout is hard-capped
+  independent of configuration; browser/context/driver cleanup is
+  guaranteed via `finally` even on exception/timeout/Ctrl+C.
+- **Assessment/Reporting/Quality Gate/Regression integration**: a tenth
+  "Browser Testing" assessment category (execution-driven, like Functional
+  Health/Performance); a "Browser Testing" report section (json/markdown/
+  html); Quality Gate needs no engine changes (data-driven policy already
+  handles a new category); `regression/browser_compare.py` mirrors
+  `functional_compare.py` (per-test-ID PASS/FAIL/ERROR, no numeric score).
+- **Explicitly not built this phase**: AI-generated test plans, visual
+  regression, accessibility auditing, security scanning, distributed/cloud
+  browser providers, automatic project server startup, arbitrary
+  JavaScript execution as a user action, automatic credential discovery.
+
+**Static Web Analysis extension (same phase, follow-up enhancement).** A
+project needs no `package.json`, lockfile, or config file at all to be
+recognized as a frontend — a plain static HTML/CSS/JavaScript website is a
+first-class `FrontendType.STATIC_WEB`, not a degraded fallback of the
+framework case. Classification (`STATIC_WEB`/`FRAMEWORK_WEB`/
+`FULL_STACK_WEB`/`UNKNOWN_WEB`) always gives framework/config evidence
+precedence over a static-HTML guess — a React project's own `index.html`
+never reclassifies it as Static Web. Conservative false-positive guards
+(brief §20) keep generated documentation (`docs/`), code-coverage reports
+(`coverage/`/`htmlcov/`, excluded from discovery entirely), and
+server-rendered backend templates (`templates/`) from being misclassified
+as a standalone static frontend — a lone HTML file in one of those
+locations with no supporting CSS/JS is not detected as a frontend at all.
+Detected static sites additionally report HTML/CSS/JS file counts, entry
+point(s) (or an explicit "multiple web roots" note for monorepos),
+navigation-link evidence, form/API-client/responsive-design/
+authentication-UI structural evidence, and known CSS framework evidence
+(Bootstrap/Tailwind/Bulma/Foundation, matched by filename/link, never by
+an arbitrary class name) — all bounded, offline, and never executing any
+HTML/CSS/JavaScript. See `docs/FRONTEND_ANALYSIS.md`.
+
+### 4.15 One-Click Web Assessment / Non-Programmer UX (Phase 10 — implemented)
+
+```
+universal-test web assess <path> [--target <url>] [--allow-external] [--screenshots] [--dry-run] [--yes] [--baseline <path>]
+```
+
+Not a new testing engine — a guided preset over the existing `assess`
+pipeline (discovery + static analysis + browser smoke test + report),
+scoped to non-programmer usability. See `ARCHITECTURE.md` §18 for
+implementation detail; summary:
+
+- **CLI**: `web assess` forces `--browser` on and defaults out performance/
+  database flags, then delegates to the same `_run_assess()` the plain
+  `assess` command uses — no duplicate discovery/execution/assessment/
+  report code. `--dry-run` prints a human-readable plan (detected type,
+  planned checks, not-included list, generated browser test plan) without
+  launching a browser.
+- **GUI**: a "Web Assessment" card (pick project → "Analyze Project &
+  Build Plan" → plan + confirmation → run) alongside the pre-existing
+  "Full Assessment" form, not replacing it. Calls a new read-only
+  `POST /api/web/detect` (wraps the existing `discover()`, returns
+  `FrontendInfo` — no HTML re-parsing in the GUI) for the pre-flight plan,
+  then the *same* `/api/assess` endpoint the Full Assessment form already
+  used for actual execution — one run-tracking system, one results
+  renderer.
+- **Web detection**: reuses `FrontendType`
+  (`STATIC_WEB`/`FRAMEWORK_WEB`/`FULL_STACK_WEB`/`UNKNOWN_WEB`) and
+  `FrontendInfo.detected` unmodified. A non-web project is never treated
+  as a failure — "no web frontend detected, Full Assessment still
+  available."
+- **Safety unchanged**: explicit target still required for real browser
+  execution (never guessed); `--yes`/interactive confirmation and the
+  GUI's separate confirmation checkbox are unchanged from Phase 9;
+  `--allow-external`/external-target policy unchanged; the GUI's
+  external-target warning is a presentation-only heuristic, never the
+  actual security boundary.
+- **Result summary**: Application Health / Testability / Assessment
+  Coverage / Browser Testing render as four distinct, independently
+  explained lines (no numeric score, ever) at the top of the results
+  screen, reusing the Phase 8.5/9 summary card with one added line.
+- **Explicitly not built this phase**: no Web Test Scenario/Workflow
+  authoring, no AI-generated tests, no visual regression, no accessibility
+  scanning, no security scanning, no browser performance profiling, no
+  mobile/cloud/distributed browser testing, no automatic login discovery,
+  no automatic project-server startup.
+
+### 4.16 Web Test Scenario / Workflow Testing (Phase 11 — implemented)
+
+```
+universal-test browser scenario list <path> [--scenario-file <path>]
+universal-test browser scenario validate <path> [--scenario-file <path>]
+universal-test browser scenario run <path> --scenario <id> [--all] --target <url> [--dry-run] [--yes] [--allow-external] [--screenshots]
+universal-test assess <path> --target <url> --scenario <id> [--scenario <id> ...] --yes
+```
+
+An explicit, user-authored, repeatable multi-step Web workflow layer — not
+a new test engine. See `ARCHITECTURE.md` §19 and `docs/WEB_SCENARIOS.md`
+for implementation detail; summary:
+
+- **Scenario model**: framework-independent, serializable
+  (`WebScenario`/`ScenarioStep`, plain dataclasses, no Playwright objects)
+  loaded from a dedicated YAML file (default `universal-test-web.yaml`,
+  not forced into `universal-test.yaml`). Each step is either one real
+  browser action or one `assert_*` action, never both.
+- **Full reuse**: every action maps onto the existing `ALLOWED_ACTIONS`;
+  every `assert_*` action maps onto an existing browser `AssertionEngine`
+  evaluator; selectors reuse `BrowserSelector` unmodified. One step = one
+  synthesized `TestCase` run through the unmodified `TestEngine.run()`.
+- **Secret-safe by construction**: `value_env` (an environment-variable
+  *reference*) is the normal mechanism for any credential-shaped value;
+  resolved only at the last possible moment during real execution, never
+  during `list`/`validate`/`--dry-run`; never appears in any report/log/
+  GUI response (`value_env` name shown, resolved value never captured).
+- **Validation** (`browser scenario validate`, and automatically before
+  every real run) is pure/offline — missing/duplicate ids, unknown
+  actions, missing required parameters, invalid selectors, malformed
+  `value_env` references, out-of-range timeouts — and never itself
+  triggers browser execution.
+- **Sequential execution, stop-on-failure**: steps run in order sharing
+  one browser context; the first non-PASS step stops the scenario, every
+  subsequent step is recorded `SKIPPED`.
+- **Timeout hierarchy**: `Run > Scenario > Step`, each child capped to the
+  remaining parent budget, implemented via a one-line additive parameter
+  (`test_timeout_seconds_override`) on the existing Phase 9 Hardening
+  per-TestCase timeout mechanism — no second timeout system.
+- **Status semantics**: `PASS`/`FAIL`/`ERROR`/`NOT_ASSESSED`, same meanings
+  as Browser Testing (§4.14) — `ERROR` never implies an application
+  defect, `NOT_ASSESSED` never silently becomes `PASS`.
+- **Safety unchanged**: explicit target only, localhost/`--allow-external`
+  policy unchanged, no permission auto-grants, no arbitrary JavaScript
+  execution, fresh browser context, hard-capped timeouts, existing
+  `core/redaction.py` reused, guaranteed process cleanup, and the same
+  explicit `--yes`/GUI-confirmation-checkbox gate every other
+  browser-launching command requires.
+- **Assessment/Regression/Reporting**: an eleventh "Web Scenarios"
+  assessment category (execution-driven, mirrors Browser Testing);
+  `regression/scenario_compare.py` (per-scenario-ID identity comparison,
+  stable IDs, no numeric score); JSON/Markdown/HTML report sections.
+  Quality Gate needed zero engine changes (policy-driven, automatic).
+- **No automatic test generation**: static analysis evidence (forms,
+  buttons, links) is never automatically turned into a scenario step —
+  a scenario is only ever what the user explicitly wrote.
+- **Explicitly not built this phase**: AI-generated tests, an autonomous
+  browser agent, visual regression, accessibility/security scanning,
+  browser performance profiling, mobile/cloud/distributed browser testing.
 
 ## 5. Cross-cutting requirements (apply to every phase)
 

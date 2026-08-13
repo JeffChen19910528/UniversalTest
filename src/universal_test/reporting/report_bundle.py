@@ -10,6 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
+from universal_test.adapters.browser.models import BrowserRunResult
 from universal_test.core.orchestration.orchestrator import RunResult
 from universal_test.discovery.models import ProjectModel
 from universal_test.testing.performance.models import PerformanceResult
@@ -29,3 +30,5 @@ class AssessReportBundle:
     database_result: DatabaseDiscoveryResult | None = None
     regression: RegressionSummary | None = None
     quality_gate: QualityGateResult | None = None
+    browser_result: BrowserRunResult | None = None
+    scenario_results: list | None = None  # list[adapters.browser.scenario_runner.ScenarioResult]

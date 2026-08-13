@@ -23,14 +23,26 @@ def test_schema_version_present():
     assert assessment.schema_version == SCHEMA_VERSION
 
 
-def test_nine_categories_present():
+def test_eleven_categories_present():
     assessment = _build_for("healthy-project")
     names = {c.name for c in assessment.categories}
     assert names == {
         "Project Discovery", "Build / Project Health", "Testability", "Functional Health",
         "Performance", "Database Health", "Configuration Hygiene", "Test Infrastructure",
-        "Frontend / Web Application Health",
+        "Frontend / Web Application Health", "Browser Testing", "Web Scenarios",
     }
+
+
+def test_browser_not_assessed_by_default():
+    assessment = _build_for("healthy-project")
+    browser = next(c for c in assessment.categories if c.name == "Browser Testing")
+    assert browser.status == AssessmentStatus.NOT_ASSESSED
+
+
+def test_scenarios_not_assessed_by_default():
+    assessment = _build_for("healthy-project")
+    scenarios = next(c for c in assessment.categories if c.name == "Web Scenarios")
+    assert scenarios.status == AssessmentStatus.NOT_ASSESSED
 
 
 def test_database_not_assessed_without_profile():
@@ -75,12 +87,12 @@ def test_no_target_no_openapi_unknown_project():
     assert assessment.overall_status == AssessmentStatus.WARNING
 
 
-def test_coverage_has_six_items():
+def test_coverage_has_seven_items():
     assessment = _build_for("healthy-project")
     names = {c.name for c in assessment.coverage}
     assert names == {
         "Discovery", "API Discovery", "Functional Execution", "Performance Execution", "Database",
-        "Frontend Discovery",
+        "Frontend Discovery", "Web Scenarios",
     }
 
 

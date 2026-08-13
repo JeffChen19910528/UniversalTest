@@ -108,8 +108,8 @@ class ProjectAssessment:
     # Hardening brief §10/§11/§29) - distinct from `overall_status`, which
     # is unchanged and remains the sole input to Quality Gate/regression/
     # exit-code logic. `application_health`: "no confirmed defect" (PASS)
-    # unless something that actually executed (Functional/Performance)
-    # showed a real problem - testability gaps/informational findings
+    # unless something that actually executed (Functional/Performance/
+    # Browser Testing) showed a real problem - testability gaps/informational findings
     # never drag this down. `assessment_completeness`: "full" only when
     # every coverage item is 100% and nothing is in `unassessed`.
     application_health: AssessmentStatus = AssessmentStatus.PASS

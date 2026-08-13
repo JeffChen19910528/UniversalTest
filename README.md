@@ -97,7 +97,17 @@ opens your default browser to it. From there you can pick a project
 folder, optionally enter a test target, choose which checks to run, and
 click "開始專案健檢" / "Start Assessment" — the GUI calls the exact same
 discovery/testing/assessment pipeline as the CLI, just with plain-language
-progress and results instead of flags and JSON. The result dashboard shows
+progress and results instead of flags and JSON.
+
+For web projects specifically, a "Web Assessment" card offers a guided
+one-click path: pick a project, click "Analyze Project & Build Plan" to see
+what Universal Test detected (static/framework/full-stack web, or "no web
+frontend detected") and exactly what will and won't be tested, confirm,
+then run — no need to understand checkboxes for performance/database/REST
+testing at all. The detailed "Full Assessment" form below it remains
+available for anyone who wants that level of control.
+
+The result dashboard shows
 the same Quality Gate verdict and Regression comparison `assess --baseline`
 computes, performance testing lets you pick which API endpoint to target
 when more than one exists, and API authentication (Bearer/API key/Basic)
@@ -229,6 +239,68 @@ host, the fixed list of read-only operations, "Mode: READ ONLY"). A
 missing database driver (e.g. `pyodbc` for SQL Server) degrades to
 `NOT_ASSESSED` with an install hint, never a crash.
 
+### `browser`
+
+Real, bounded, explicitly-authorized browser/UI testing (optional
+`pip install universal-test[browser]` extra). Disabled unless you
+explicitly ask for it — a detected frontend never triggers it.
+
+```bash
+universal-test browser install                                   # explicit, one-time browser binary download
+universal-test browser test ./my-site --target http://localhost:8080 --dry-run
+universal-test browser test ./my-site --target http://localhost:8080 --yes
+```
+
+No port scanning, no guessed targets. `localhost`/`127.0.0.1`/`::1`/
+`file://` are allowed by default; anything else needs `--allow-external`.
+No credential guessing, no auto-granted browser permissions (microphone/
+camera/geolocation), no arbitrary JavaScript execution. See
+`docs/BROWSER_TESTING.md` and `docs/BROWSER_SAFETY.md`.
+
+### `web assess`
+
+A guided, non-programmer-friendly one-command Web Assessment: project
+discovery + static frontend analysis + browser smoke test + report, without
+needing to know `scan`/`assess`/`browser test` as separate concepts. It is
+a thin, safe preset over the *same* `assess` pipeline above — not a second
+engine — scoped to static analysis and browser testing only (no
+performance/database testing).
+
+```bash
+universal-test web assess ./my-site --target http://localhost:8080 --dry-run
+universal-test web assess ./my-site --target http://localhost:8080 --yes
+universal-test web assess ./my-site   # no target: static analysis only, Browser Testing shows NOT ASSESSED
+```
+
+The GUI exposes the same guided flow as a "Web Assessment" card: pick a
+project, click "Analyze Project & Build Plan" to see what was detected
+(static/framework/full-stack web, or "no web frontend detected") and
+exactly what will and won't be tested, then confirm before anything
+executes. See `docs/BROWSER_TESTING.md`.
+
+### `browser scenario`
+
+An explicit, user-authored, repeatable multi-step Web workflow — "log in,
+then verify the dashboard" — rather than a single smoke test. Defined once
+in a YAML file (default `universal-test-web.yaml`), not a new test engine:
+each step reuses the same Browser Adapter actions/assertions/selectors
+`browser test` already uses.
+
+```bash
+universal-test browser scenario list ./my-site
+universal-test browser scenario validate ./my-site
+universal-test browser scenario run ./my-site --scenario login-smoke --target http://localhost:3000 --dry-run
+universal-test browser scenario run ./my-site --scenario login-smoke --target http://localhost:3000 --yes
+```
+
+Secrets use `value_env: TEST_PASSWORD` (an environment-variable
+*reference*), never a literal password in the file — resolved only at
+execution time, never during `list`/`validate`/`--dry-run`, and never
+shown in a report/log. Steps run in order and stop at the first one that
+doesn't PASS; `assess --scenario <id> --target ... --yes` folds the result
+into the unified report as a "Web Scenarios" category. See
+`docs/WEB_SCENARIOS.md`.
+
 ### `assess`
 
 Ties discovery, functional, performance, database, and regression results
@@ -240,6 +312,7 @@ Assessed section.
 universal-test assess ./my-project
 universal-test assess ./my-project --target http://localhost:8000
 universal-test assess ./my-project --target http://localhost:8000 --performance --yes
+universal-test assess ./my-project --target http://localhost:8000 --browser --yes
 universal-test assess ./my-project --database-profile ./database.yaml
 universal-test assess ./my-project --format json --output ./reports
 ```
@@ -402,8 +475,10 @@ questions, and are never collapsed into one meaning:
 - **Static analysis detects capabilities and evidence; it cannot prove
   runtime behavior.** A detected browser API, form, or interactive element
   is evidence the code exists, not proof it works when actually run — that
-  distinction is why "Browser/UI Execution" is always reported separately
-  as `NOT_ASSESSED` until an actual Browser Adapter exists.
+  distinction is why "Browser/UI Execution" is reported separately from
+  static frontend analysis. It stays `NOT_ASSESSED` unless you explicitly
+  opt in with `assess --browser --target ... --yes` (or
+  `universal-test browser test`) — see `docs/BROWSER_TESTING.md`.
 - **Quality Gate `PASS` means no configured gate rule failed** — it does
   not mean the entire application was verified correct; **`FAIL`** means a
   configured condition failed, detailed in the findings below it.
@@ -533,8 +608,16 @@ as a build artifact unconditionally (pass or fail):
   application pattern (static multi-page / single-page app / static
   document), external resource evidence, and CSP evidence, so a
   single-file rich web app is never misreported as having no CSS/JS.
-  Discovery + testability assessment only — **not** browser/UI execution
-  (see [`docs/FRONTEND_ANALYSIS.md`](docs/FRONTEND_ANALYSIS.md)).
+  Static discovery + testability assessment
+  (see [`docs/FRONTEND_ANALYSIS.md`](docs/FRONTEND_ANALYSIS.md)) is always
+  on; actual browser/UI *execution* is a separate, explicit opt-in (see
+  next item and [`docs/BROWSER_TESTING.md`](docs/BROWSER_TESTING.md)).
+- **Browser / UI functional testing**: Chromium/Firefox/WebKit via
+  Playwright (optional `[browser]` extra). Explicit target only, bounded
+  navigate/click/fill/select/check/uncheck/press/wait_for actions, role/
+  label/text/placeholder/test_id/css selectors, visibility/text/URL/
+  title/element-count/attribute/input-value/checked/enabled/disabled
+  assertions. Disabled by default everywhere.
 - **Functional/performance testing**: OpenAPI 3.x REST APIs.
 - **Database assessment**: SQL Server, PostgreSQL, MySQL, SQLite.
 - **CI**: any provider that can run a shell command and check an exit
@@ -551,7 +634,10 @@ a correctness proof, not a substitute for QA or code review:
 - It does not prove production readiness.
 - It does not prove complete test coverage.
 - It is not a security scanner or vulnerability detector.
-- It is not a browser/UI automation framework.
+- It is not a general-purpose browser/UI automation framework — browser
+  testing supports one conservative smoke test plus a small, explicit
+  action/assertion vocabulary, not arbitrary workflow automation, visual
+  regression, or accessibility auditing.
 - It is not an AI-driven or autonomous testing agent — every result is
   fully deterministic; there is no AI/LLM anywhere in this tool.
 - It is not a fuzzing framework — functional tests are conservative,
@@ -585,6 +671,7 @@ python -m pytest -q
 | `docs/V1_HARDENING_AUDIT.md` | The pre-freeze architecture/safety audit. |
 | `docs/V1_RELEASE.md` | The V1.0 release manifest. |
 | `docs/POST_V1_BACKLOG.md` | Candidate post-V1 directions (not committed to). |
+| `docs/WEB_CAPABILITY_FREEZE.md` | The frozen Web capability (Phases 9-11) contract surface — Included/Explicitly-Not-Included. |
 
 ### Architecture at a glance
 

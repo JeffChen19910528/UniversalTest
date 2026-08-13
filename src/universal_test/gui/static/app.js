@@ -70,6 +70,10 @@
     if (!res.path) return;
     state.projectPath = res.path;
     document.getElementById("project-path").value = res.path;
+    // A previously analyzed Web Assessment plan describes the *old* project --
+    // showing it against a newly picked folder would mislead a non-programmer
+    // into starting a run based on stale detection info (Phase 10 UX review).
+    document.getElementById("web-assess-plan").classList.add("hidden");
     const validation = await api("POST", "/api/validate-project", { path: res.path });
     if (!validation.valid) {
       const key = validation.reason === "empty_directory" ? "invalid_folder_empty" : "invalid_folder_not_dir";
@@ -117,6 +121,12 @@
   });
   document.getElementById("chk-database").addEventListener("change", (e) => {
     document.getElementById("database-fields").classList.toggle("hidden", !e.target.checked);
+  });
+  document.getElementById("chk-browser").addEventListener("change", (e) => {
+    document.getElementById("browser-confirm-box").classList.toggle("hidden", !e.target.checked);
+    if (!e.target.checked) {
+      document.getElementById("chk-browser-confirm").checked = false;
+    }
   });
 
   // -- Authentication (Advanced Settings) ------------------------------------
@@ -203,33 +213,19 @@
   }
 
   // -- Start assessment ------------------------------------------------------
-  document.getElementById("btn-start-assess").addEventListener("click", async () => {
+  // Shared by both entry points (Full Assessment form and the guided Web
+  // Assessment card) so there is exactly one place that calls `/api/assess`
+  // and exactly one run-tracking/progress/results flow (spec section 4/22/41)
+  // -- the two forms only differ in how `body` gets built.
+  async function startAssessmentRun(body, startBtn) {
     if (state.starting) return; // Final QA Known Issue I: block accidental double-clicks
     if (!state.projectPath) {
       showValidation(t("invalid_folder_empty_path"), true);
       return;
     }
-    const startBtn = document.getElementById("btn-start-assess");
     state.starting = true;
-    startBtn.disabled = true;
+    if (startBtn) startBtn.disabled = true;
     try {
-      const body = {
-        project_path: state.projectPath,
-        target: document.getElementById("target-url").value.trim() || null,
-        run_functional: document.getElementById("chk-functional").checked,
-        run_performance: document.getElementById("chk-performance").checked,
-        performance_confirmed: document.getElementById("chk-performance-confirm").checked,
-        run_database: document.getElementById("chk-database").checked,
-        database_profile_path: state.databaseProfilePath || null,
-        openapi_override: state.openapiPath || null,
-        baseline_path: state.baselinePath || null,
-        output_dir: document.getElementById("adv-output-dir").value.trim() || null,
-        perf_profile: document.getElementById("adv-perf-profile").value,
-        perf_endpoint: state.selectedPerfEndpoint ? state.selectedPerfEndpoint.path : null,
-        perf_method: state.selectedPerfEndpoint ? state.selectedPerfEndpoint.method : null,
-        timeout_seconds: parseFloat(document.getElementById("adv-timeout").value) || 10,
-        ...authFieldsFromForm(),
-      };
       state.usedBaseline = !!body.baseline_path;
       const started = await api("POST", "/api/assess", body);
       if (started.error) {
@@ -241,13 +237,300 @@
       startProgress();
     } finally {
       state.starting = false;
+      if (startBtn) startBtn.disabled = false;
+    }
+  }
+
+  document.getElementById("btn-start-assess").addEventListener("click", () => {
+    const startBtn = document.getElementById("btn-start-assess");
+    const body = {
+      project_path: state.projectPath,
+      target: document.getElementById("target-url").value.trim() || null,
+      run_functional: document.getElementById("chk-functional").checked,
+      run_performance: document.getElementById("chk-performance").checked,
+      performance_confirmed: document.getElementById("chk-performance-confirm").checked,
+      run_database: document.getElementById("chk-database").checked,
+      database_profile_path: state.databaseProfilePath || null,
+      run_browser: document.getElementById("chk-browser").checked,
+      browser_confirmed: document.getElementById("chk-browser-confirm").checked,
+      browser_target: document.getElementById("target-url").value.trim() || null,
+      browser_allow_external: document.getElementById("chk-browser-allow-external").checked,
+      browser_screenshots: document.getElementById("chk-browser-screenshots").checked,
+      openapi_override: state.openapiPath || null,
+      baseline_path: state.baselinePath || null,
+      output_dir: document.getElementById("adv-output-dir").value.trim() || null,
+      perf_profile: document.getElementById("adv-perf-profile").value,
+      perf_endpoint: state.selectedPerfEndpoint ? state.selectedPerfEndpoint.path : null,
+      perf_method: state.selectedPerfEndpoint ? state.selectedPerfEndpoint.method : null,
+      timeout_seconds: parseFloat(document.getElementById("adv-timeout").value) || 10,
+      ...authFieldsFromForm(),
+    };
+    startAssessmentRun(body, startBtn);
+  });
+
+  // -- Web Assessment: guided one-click workflow (Phase 10) -------------------
+  // Local-only heuristic, presentation purposes only (deciding whether to show
+  // the external-target warning box) -- the backend's `target_policy.py` is
+  // still the sole safety authority regardless of what this shows (spec
+  // section 15/16: "The GUI confirmation is additional UX protection, not
+  // the security boundary").
+  function looksLikeLocalTarget(target) {
+    if (!target) return true;
+    return /^(https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?\/?|file:\/\/)/i.test(target.trim());
+  }
+
+  function updateWebAssessStartState() {
+    const target = document.getElementById("web-target-url").value.trim();
+    const confirmed = document.getElementById("chk-web-confirm").checked;
+    const allowExternal = document.getElementById("chk-web-allow-external").checked;
+    const isExternal = target && !looksLikeLocalTarget(target);
+    document.getElementById("web-external-warning").classList.toggle("hidden", !isExternal);
+    if (isExternal) {
+      document.getElementById("web-external-warning-target").textContent = target;
+    }
+    const startBtn = document.getElementById("btn-start-web-assess");
+    const hint = document.getElementById("web-assess-start-hint");
+    if (!target) {
+      // Spec section 9/14: a project with no web target is not a failure --
+      // static analysis alone is still a complete, valid Web Assessment.
       startBtn.disabled = false;
+      hint.classList.remove("hidden");
+    } else if (isExternal && !allowExternal) {
+      startBtn.disabled = true;
+      hint.classList.add("hidden");
+    } else if (!confirmed) {
+      startBtn.disabled = true;
+      hint.classList.add("hidden");
+    } else {
+      startBtn.disabled = false;
+      hint.classList.add("hidden");
+    }
+  }
+
+  ["web-target-url"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", updateWebAssessStartState);
+  });
+  ["chk-web-confirm", "chk-web-allow-external"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", updateWebAssessStartState);
+  });
+
+  function renderWebAssessmentPlan(data) {
+    const detected = document.getElementById("web-assess-detected");
+    const notWeb = document.getElementById("web-assess-not-web");
+    const checks = document.getElementById("web-assess-checks");
+
+    if (!data.detected) {
+      detected.innerHTML = "";
+      notWeb.classList.remove("hidden");
+      checks.classList.add("hidden");
+      return;
+    }
+    notWeb.classList.add("hidden");
+    checks.classList.remove("hidden");
+
+    const fe = data.frontend || {};
+    const typeLabel = t("web_type_" + (fe.frontend_type || "unknown_web"));
+    const bits = [`<strong>${t("web_assess_detected_label")}:</strong> ${escapeHtml(typeLabel)}`];
+    if (fe.entry_points && fe.entry_points.length) {
+      bits.push(`${t("web_assess_entry_point_label")}: ${escapeHtml(fe.entry_points.join(", "))}`);
+    }
+    if (data.frameworks && data.frameworks.length) {
+      bits.push(`${t("web_assess_framework_label")}: ${escapeHtml(data.frameworks.join(", "))}`);
+    }
+    if (fe.browser_apis && fe.browser_apis.length) {
+      bits.push(`${t("web_assess_browser_apis_label")}: ${escapeHtml(fe.browser_apis.join(", "))}`);
+    }
+    detected.innerHTML = `<div class="notice">${bits.join("<br>")}</div>`;
+
+    const plannedList = document.getElementById("web-assess-planned-list");
+    plannedList.innerHTML = [
+      "web_check_structure", "web_check_static_analysis", "web_check_browser_smoke",
+      "web_check_console_errors",
+    ].map((k) => `<li>${t(k)}</li>`).join("");
+
+    const notIncludedList = document.getElementById("web-assess-not-included-list");
+    notIncludedList.innerHTML = [
+      "web_not_included_login", "web_not_included_permissions", "web_not_included_visual",
+      "web_not_included_security", "web_not_included_accessibility",
+    ].map((k) => `<li>${t(k)}</li>`).join("");
+  }
+
+  document.getElementById("btn-analyze-web").addEventListener("click", async () => {
+    if (!state.projectPath) {
+      showValidation(t("invalid_folder_empty_path"), true);
+      return;
+    }
+    const res = await api("POST", "/api/web/detect", { project_path: state.projectPath });
+    if (res.error) {
+      showValidation(res.detail || t("error_generic"), true);
+      return;
+    }
+    document.getElementById("web-assess-plan").classList.remove("hidden");
+    renderWebAssessmentPlan(res);
+    updateWebAssessStartState();
+  });
+
+  document.getElementById("btn-start-web-assess").addEventListener("click", () => {
+    const startBtn = document.getElementById("btn-start-web-assess");
+    const target = document.getElementById("web-target-url").value.trim() || null;
+    const body = {
+      project_path: state.projectPath,
+      target: target,
+      run_functional: true,
+      run_performance: false,
+      run_database: false,
+      run_browser: !!target,
+      browser_confirmed: document.getElementById("chk-web-confirm").checked,
+      browser_target: target,
+      browser_allow_external: document.getElementById("chk-web-allow-external").checked,
+      browser_screenshots: document.getElementById("chk-web-screenshots").checked,
+      output_dir: null,
+    };
+    startAssessmentRun(body, startBtn);
+  });
+
+  // -- Web Scenarios: explicit, repeatable multi-step workflows (Phase 11) ---
+  const scenarioState = { collection: null, selected: null, running: false };
+
+  function describeScenarioStepClientSide(step) {
+    // Presentation-only formatting of already-safe, backend-provided data
+    // (spec section 35: value_env-sourced values are never sent by the
+    // backend in the first place) -- never re-derives a verdict, never
+    // resolves a secret, just lays out the fields the same way the CLI's
+    // `describe_step()` does.
+    const sel = step.selector ? (step.selector.type === "role"
+      ? `role=${step.selector.role} name='${step.selector.value}'`
+      : `${step.selector.type}='${step.selector.value}'`) : "";
+    if (step.action && step.action.indexOf("assert_") === 0) {
+      return `${t("scenarios_assert_label")} ${step.action.slice(7)}: ${sel || step.value || ""}`;
+    }
+    if (step.action === "navigate") {
+      return `${t("scenarios_navigate_label")} ${step.url || step.value || ""}`;
+    }
+    if (step.value_env) {
+      return `${step.action} ${sel} (${t("scenarios_from_env_label")}: ${step.value_env})`;
+    }
+    return `${step.action} ${sel} ${step.value || ""}`.trim();
+  }
+
+  function renderScenarioList(collection) {
+    const list = document.getElementById("scenarios-list");
+    const none = document.getElementById("scenarios-none");
+    if (!collection.scenarios || collection.scenarios.length === 0) {
+      list.classList.add("hidden");
+      none.classList.remove("hidden");
+      return;
+    }
+    none.classList.add("hidden");
+    list.classList.remove("hidden");
+    list.innerHTML = "";
+    collection.scenarios.forEach((scenario) => {
+      const row = document.createElement("div");
+      row.className = "checkbox-row";
+      row.innerHTML = `<input type="radio" name="scenario-select" id="scn-${escapeHtml(scenario.id)}">
+        <label for="scn-${escapeHtml(scenario.id)}"><strong>${escapeHtml(scenario.name)}</strong> (${escapeHtml(scenario.id)})</label>`;
+      row.querySelector("input").addEventListener("change", () => selectScenario(scenario));
+      list.appendChild(row);
+    });
+  }
+
+  function selectScenario(scenario) {
+    scenarioState.selected = scenario;
+    document.getElementById("scenario-detail").classList.remove("hidden");
+    document.getElementById("scenario-detail-name").textContent = scenario.name;
+    document.getElementById("scenario-detail-description").textContent = scenario.description || "";
+    const stepsList = document.getElementById("scenario-detail-steps");
+    stepsList.innerHTML = (scenario.steps || [])
+      .map((s) => `<li>${escapeHtml(describeScenarioStepClientSide(s))}</li>`).join("");
+    document.getElementById("scenario-plan").classList.add("hidden");
+    document.getElementById("scenario-result").classList.add("hidden");
+    updateScenarioRunState();
+  }
+
+  function updateScenarioRunState() {
+    const target = document.getElementById("scenario-target-url").value.trim();
+    const confirmed = document.getElementById("chk-scenario-confirm").checked;
+    const allowExternal = document.getElementById("chk-scenario-allow-external").checked;
+    const isExternal = target && !looksLikeLocalTarget(target);
+    document.getElementById("scenario-external-warning").classList.toggle("hidden", !isExternal);
+    const runBtn = document.getElementById("btn-run-scenario");
+    runBtn.disabled = !target || !confirmed || (isExternal && !allowExternal);
+  }
+
+  ["scenario-target-url"].forEach((id) => {
+    document.getElementById(id).addEventListener("input", updateScenarioRunState);
+  });
+  ["chk-scenario-confirm", "chk-scenario-allow-external"].forEach((id) => {
+    document.getElementById(id).addEventListener("change", updateScenarioRunState);
+  });
+
+  document.getElementById("btn-list-scenarios").addEventListener("click", async () => {
+    if (!state.projectPath) {
+      showValidation(t("invalid_folder_empty_path"), true);
+      return;
+    }
+    const res = await api("POST", "/api/web/scenarios", { project_path: state.projectPath });
+    if (res.error) {
+      showValidation(res.detail || t("error_generic"), true);
+      return;
+    }
+    scenarioState.collection = res;
+    renderScenarioList(res);
+  });
+
+  document.getElementById("btn-dry-run-scenario").addEventListener("click", () => {
+    if (!scenarioState.selected) return;
+    const plan = document.getElementById("scenario-plan");
+    plan.classList.remove("hidden");
+    plan.innerHTML = `<div class="notice">${t("scenarios_dry_run_notice")}</div>`;
+  });
+
+  document.getElementById("btn-run-scenario").addEventListener("click", async () => {
+    if (!scenarioState.selected || scenarioState.running) return;
+    const runBtn = document.getElementById("btn-run-scenario");
+    scenarioState.running = true;
+    runBtn.disabled = true;
+    const resultBox = document.getElementById("scenario-result");
+    resultBox.classList.remove("hidden");
+    resultBox.innerHTML = `<p class="field-hint">${t("scenarios_running")}</p>`;
+    try {
+      const res = await api("POST", "/api/web/scenario/run", {
+        project_path: state.projectPath,
+        scenario_id: scenarioState.selected.id,
+        target: document.getElementById("scenario-target-url").value.trim(),
+        allow_external: document.getElementById("chk-scenario-allow-external").checked,
+        confirmed: document.getElementById("chk-scenario-confirm").checked,
+      });
+      if (res.error) {
+        resultBox.innerHTML = `<div class="notice warn">${escapeHtml(res.detail || res.error)}</div>`;
+        return;
+      }
+      renderScenarioResult(res.result, resultBox);
+    } finally {
+      scenarioState.running = false;
+      updateScenarioRunState();
     }
   });
 
+  function renderScenarioResult(result, container) {
+    if (result.status === "not_assessed") {
+      container.innerHTML = `${statusBadge("not_assessed")}<p>${escapeHtml(result.not_assessed_reason || "")}</p>`;
+      return;
+    }
+    const stepRows = (result.steps || []).map((s) => {
+      const badgeClass = { passed: "pass", failed: "fail", error: "error", skipped: "unknown" }[s.status] || "unknown";
+      return `<li>${statusBadge(badgeClass)} ${escapeHtml(s.step_id)} (${escapeHtml(s.action)}) - ${escapeHtml(s.message)}</li>`;
+    }).join("");
+    container.innerHTML = `
+      ${statusBadge(result.status)}
+      <p>${result.passed_steps} / ${result.step_count} ${t("scenarios_steps_passed_label")}</p>
+      <ul>${stepRows}</ul>
+    `;
+  }
+
   // -- Progress ------------------------------------------------------------
   const BASE_STAGE_ORDER = [
-    "project_scan", "functional_test", "performance_test", "database_assessment", "assessment", "report_generation",
+    "project_scan", "functional_test", "performance_test", "database_assessment", "browser_test", "assessment", "report_generation",
   ];
 
   function currentStageOrder() {
@@ -413,6 +696,7 @@
     // application defect. This renders alongside, never replacing, the
     // full category grid below.
     const testabilityCat = assessment.categories.find((c) => c.name === "Testability");
+    const browserCat = assessment.categories.find((c) => c.name === "Browser Testing");
     const body = document.getElementById("assessment-summary-body");
     body.innerHTML = `
       <div class="finding">
@@ -429,6 +713,11 @@
         <span class="status-badge">${escapeHtml((assessment.assessment_completeness || "").toUpperCase())}</span>
         <strong>${t("assessment_coverage_label")}</strong>
         <p class="field-hint">${t("assessment_coverage_hint")}</p>
+      </div>
+      <div class="finding">
+        ${browserCat ? statusBadge(browserCat.status) : ""}
+        <strong>${t("browser_testing_label")}</strong>
+        <p class="field-hint">${t(browserCat && browserCat.status !== "not_assessed" ? "browser_testing_hint" : "browser_testing_not_assessed_hint")}</p>
       </div>
     `;
   }
@@ -448,13 +737,19 @@
     assessment.categories.forEach((cat) => {
       const div = document.createElement("div");
       div.className = "category-card";
-      // Frontend detected != frontend functionally tested (brief §20/§32): the
-      // browser/UI execution note is shown directly on the card, not just
-      // buried in the Unassessed list, since it's the key caveat a
-      // non-technical user needs to see next to "frontend detected".
+      // Frontend detected != frontend functionally tested (spec section 64: static
+      // analysis and browser testing answer different questions). The note is shown
+      // directly on the Frontend card, driven by the actual Browser Testing category
+      // status the backend computed -- never a static "not assessed" claim once
+      // browser testing has actually run (Phase 9).
       const isFrontend = cat.name === "Frontend / Web Application Health";
-      const browserNote = isFrontend && cat.status !== "not_assessed"
-        ? `<p class="field-hint">${t("frontend_browser_ui_not_assessed")}</p>` : "";
+      let browserNote = "";
+      if (isFrontend && cat.status !== "not_assessed") {
+        const browserCat = assessment.categories.find((c) => c.name === "Browser Testing");
+        browserNote = browserCat && browserCat.status !== "not_assessed"
+          ? `<p class="field-hint">${t("frontend_browser_ui_status")}: ${statusBadge(browserCat.status)}</p>`
+          : `<p class="field-hint">${t("frontend_browser_ui_not_assessed")}</p>`;
+      }
       div.innerHTML = `${statusBadge(cat.status)}<h3>${escapeHtml(categoryLabel(cat.name))}</h3><p>${escapeHtml(cat.summary || cat.reason || "")}</p>${browserNote}`;
       div.addEventListener("click", () => {
         document.getElementById("findings-card").scrollIntoView({ behavior: "smooth" });

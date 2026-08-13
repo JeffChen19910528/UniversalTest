@@ -10,11 +10,13 @@ from __future__ import annotations
 
 from universal_test.assessment.rules import compute_overall_status
 from universal_test.regression.assessment_compare import compare_assessment
+from universal_test.regression.browser_compare import compare_browser
 from universal_test.regression.database_compare import compare_database
 from universal_test.regression.discovery_compare import compare_discovery
 from universal_test.regression.functional_compare import compare_functional
 from universal_test.regression.models import SCHEMA_VERSION, BaselineSnapshot, RegressionSummary
 from universal_test.regression.performance_compare import compare_performance
+from universal_test.regression.scenario_compare import compare_scenario
 
 
 def compare(
@@ -26,6 +28,8 @@ def compare(
         compare_database(baseline.database, current.database),
         compare_discovery(baseline.discovery, current.discovery),
         compare_assessment(baseline.assessment, current.assessment),
+        compare_browser(baseline.browser, current.browser),
+        compare_scenario(baseline.scenario, current.scenario),
     ]
 
     warnings = []

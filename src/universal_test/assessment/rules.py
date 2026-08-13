@@ -31,7 +31,7 @@ from universal_test.assessment.models import AssessmentCategory
 # reaching FAIL and its WARNING never means "confirmed defect" (each
 # module's own docstring says so: "capped below FAIL"/"never FAIL") - see
 # Static Web Analysis & Assessment Semantics Hardening brief §10/§29.
-_EXECUTION_DRIVEN_CATEGORY_NAMES = {"Functional Health", "Performance"}
+_EXECUTION_DRIVEN_CATEGORY_NAMES = {"Functional Health", "Performance", "Browser Testing", "Web Scenarios"}
 
 
 def compute_overall_status(category_statuses: list[AssessmentStatus]) -> AssessmentStatus:
@@ -81,8 +81,8 @@ def execution_health_status(
 
 def compute_application_health(categories: list[AssessmentCategory]) -> AssessmentStatus:
     """"No confirmed defects" (`PASS`) unless a category whose status is
-    driven by real execution (Functional Health / Performance) reports
-    `WARNING`/`FAIL`. Deliberately a category-name whitelist, not a
+    driven by real execution (Functional Health / Performance / Browser
+    Testing / Web Scenarios) reports `WARNING`/`FAIL`. Deliberately a category-name whitelist, not a
     `AssessmentFinding.classification`-based aggregation - every
     non-execution category (Testability, Test Infrastructure, Build
     Health, Database Health, Configuration Hygiene, Frontend Health,

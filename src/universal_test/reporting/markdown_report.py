@@ -51,7 +51,7 @@ def to_markdown(bundle: AssessReportBundle) -> str:
     lines += [
         f"- **Application Health: {_status_badge(a.application_health.value)}** - "
         "reflects only categories driven by something that actually executed "
-        "(Functional/Performance). A `PASS` here means no confirmed defect was "
+        "(Functional/Performance/Browser Testing). A `PASS` here means no confirmed defect was "
         "found; it does not mean every capability was tested."
     ]
     lines += [
@@ -219,11 +219,80 @@ def to_markdown(bundle: AssessReportBundle) -> str:
         lines.append(f"| Authentication UI | {fe.auth_ui.status.value} |")
         lines.append(f"| Content-Security-Policy | {fe.csp.status.value} |")
         lines.append("")
-        lines.append(
-            "> **Browser/UI Execution: NOT_ASSESSED** - browser automation adapter is not "
-            "enabled in this version. Frontend detected does not mean the frontend was "
-            "functionally tested."
-        )
+        browser_cat_for_frontend = next((c for c in a.categories if c.name == "Browser Testing"), None)
+        if browser_cat_for_frontend is not None and browser_cat_for_frontend.status.value != "not_assessed":
+            lines.append(
+                f"> **Browser/UI Execution: {_status_badge(browser_cat_for_frontend.status.value)}** - "
+                "see the Browser Testing section below for details."
+            )
+        else:
+            reason = browser_cat_for_frontend.reason if browser_cat_for_frontend else "browser testing was not requested"
+            lines.append(
+                f"> **Browser/UI Execution: NOT_ASSESSED** - {reason}. Frontend detected does "
+                "not mean the frontend was functionally tested."
+            )
+    lines.append("")
+
+    # Browser Testing (Phase 9 spec section 39)
+    lines += ["## Browser Testing", ""]
+    browser_cat = next((c for c in a.categories if c.name == "Browser Testing"), None)
+    if browser_cat is None or browser_cat.status.value == "not_assessed":
+        lines.append("**NOT ASSESSED**")
+        lines.append("")
+        reason = browser_cat.reason if browser_cat else "browser testing was not requested"
+        lines.append(f"Browser testing was not requested. Reason: {reason}")
+        lines.append("")
+        lines.append("Static frontend analysis was completed separately (see Frontend / Web Application above).")
+    else:
+        lines.append(f"**Status: {_status_badge(browser_cat.status.value)}**")
+        lines.append("")
+        lines.append(f"- Target: `{bundle.browser_result.target if bundle.browser_result else a.target}`")
+        lines.append(f"- Browser: {bundle.browser_result.browser if bundle.browser_result else 'unknown'}")
+        lines.append(f"- {browser_cat.summary}")
+        if browser_cat.status.value in ("fail", "warning") and any(
+            f.classification.value == "execution_failure" for f in browser_cat.findings
+        ):
+            lines.append("")
+            lines.append(
+                "> The browser test could not be reliably executed for one or more cases "
+                "(target/selector/timeout issue). This does not by itself prove the "
+                "application is defective."
+            )
+        if bundle.browser_result and bundle.browser_result.screenshots:
+            lines.append("")
+            lines.append("Evidence:")
+            for path in bundle.browser_result.screenshots:
+                lines.append(f"- screenshot: `{path}`")
+    lines.append("")
+
+    # Web Scenarios (Phase 11 spec section 34)
+    lines += ["## Web Scenarios", ""]
+    scenario_cat = next((c for c in a.categories if c.name == "Web Scenarios"), None)
+    if scenario_cat is None or scenario_cat.status.value == "not_assessed":
+        lines.append("**NOT ASSESSED**")
+        lines.append("")
+        reason = scenario_cat.reason if scenario_cat else "no scenario was requested"
+        lines.append(f"No explicit Web Scenario was executed. Reason: {reason}")
+    else:
+        lines.append(f"**Status: {_status_badge(scenario_cat.status.value)}**")
+        lines.append("")
+        lines.append(f"- {scenario_cat.summary}")
+        lines.append("")
+        lines.append("| Scenario | Status | Steps (passed/failed/error/skipped) | Duration |")
+        lines.append("|---|---|---|---|")
+        for result in bundle.scenario_results or []:
+            lines.append(
+                f"| {result.scenario_name} (`{result.scenario_id}`) | {result.status.upper()} | "
+                f"{result.passed_steps}/{result.failed_steps}/{result.error_steps}/{result.skipped_steps} | "
+                f"{result.duration_seconds:.2f}s |"
+            )
+        if any(f.classification.value == "execution_failure" for f in scenario_cat.findings):
+            lines.append("")
+            lines.append(
+                "> A scenario could not be reliably executed for one or more cases "
+                "(target/selector/timeout issue). This does not by itself prove the "
+                "application is defective."
+            )
     lines.append("")
 
     # Regression (Phase 7 — only present when --baseline was given)

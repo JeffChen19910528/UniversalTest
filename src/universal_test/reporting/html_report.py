@@ -83,7 +83,7 @@ def to_html(bundle: AssessReportBundle) -> str:
     assessment_summary_html = (
         f'<p><strong>Application Health:</strong> {_status_span(a.application_health.value)} '
         "- reflects only categories driven by something that actually executed "
-        "(Functional/Performance). A PASS here means no confirmed defect was found; "
+        "(Functional/Performance/Browser Testing). A PASS here means no confirmed defect was found; "
         "it does not mean every capability was tested.</p>"
         f'<p><strong>Testability:</strong> {_status_span(testability_cat_for_summary.status.value)} '
         "- how testable this project currently is, independent of whether the "
@@ -116,6 +116,75 @@ def to_html(bundle: AssessReportBundle) -> str:
     performance_cat = next(c for c in a.categories if c.name == "Performance")
     database_cat = next(c for c in a.categories if c.name == "Database Health")
     frontend_cat = next((c for c in a.categories if c.name == "Frontend / Web Application Health"), None)
+    browser_cat = next((c for c in a.categories if c.name == "Browser Testing"), None)
+
+    if browser_cat is None or browser_cat.status.value == "not_assessed":
+        reason = browser_cat.reason if browser_cat else "browser testing was not requested"
+        browser_html = (
+            "<p><strong>NOT ASSESSED</strong></p>"
+            f"<p>Browser testing was not requested. Reason: {_e(reason)}</p>"
+            "<p>Static frontend analysis was completed separately (see Frontend / Web Application above).</p>"
+        )
+        frontend_browser_note = (
+            f'<em><strong>Browser/UI Execution: NOT_ASSESSED</strong> - {_e(reason)}. '
+            "Frontend detected does not mean the frontend was functionally tested.</em>"
+        )
+    else:
+        target_text = bundle.browser_result.target if bundle.browser_result else a.target
+        browser_name = bundle.browser_result.browser if bundle.browser_result else "unknown"
+        screenshots_html = ""
+        if bundle.browser_result and bundle.browser_result.screenshots:
+            screenshots_html = "<ul>" + "".join(
+                f"<li>screenshot: <code>{_e(path)}</code></li>" for path in bundle.browser_result.screenshots
+            ) + "</ul>"
+        execution_failure_note = ""
+        if browser_cat.status.value in ("fail", "warning") and any(
+            f.classification.value == "execution_failure" for f in browser_cat.findings
+        ):
+            execution_failure_note = (
+                "<p><em>The browser test could not be reliably executed for one or more cases. "
+                "This does not by itself prove the application is defective.</em></p>"
+            )
+        browser_html = (
+            f'<p><strong>Status:</strong> {_status_span(browser_cat.status.value)}</p>'
+            f'<p><strong>Target:</strong> <code>{_e(target_text)}</code> &middot; '
+            f'<strong>Browser:</strong> {_e(browser_name)}</p>'
+            f'<p>{_e(browser_cat.summary)}</p>'
+            + execution_failure_note + screenshots_html
+        )
+        frontend_browser_note = (
+            f'<strong>Browser/UI Execution: {_e(browser_cat.status.value.upper())}</strong> - '
+            "see Browser Testing section below for details."
+        )
+
+    scenario_cat = next((c for c in a.categories if c.name == "Web Scenarios"), None)
+    if scenario_cat is None or scenario_cat.status.value == "not_assessed":
+        reason = scenario_cat.reason if scenario_cat else "no scenario was requested"
+        scenario_html = (
+            "<p><strong>NOT ASSESSED</strong></p>"
+            f"<p>No explicit Web Scenario was executed. Reason: {_e(reason)}</p>"
+        )
+    else:
+        scenario_rows = "\n".join(
+            f"<tr><td>{_e(r.scenario_name)}</td><td><code>{_e(r.scenario_id)}</code></td>"
+            f"<td>{_e(r.status.upper())}</td>"
+            f"<td>{r.passed_steps}/{r.failed_steps}/{r.error_steps}/{r.skipped_steps}</td>"
+            f"<td>{r.duration_seconds:.2f}s</td></tr>"
+            for r in (bundle.scenario_results or [])
+        )
+        scenario_execution_failure_note = ""
+        if any(f.classification.value == "execution_failure" for f in scenario_cat.findings):
+            scenario_execution_failure_note = (
+                "<p><em>A scenario could not be reliably executed for one or more cases. "
+                "This does not by itself prove the application is defective.</em></p>"
+            )
+        scenario_html = (
+            f'<p><strong>Status:</strong> {_status_span(scenario_cat.status.value)}</p>'
+            f'<p>{_e(scenario_cat.summary)}</p>'
+            + scenario_execution_failure_note
+            + "<table><tr><th>Scenario</th><th>ID</th><th>Status</th>"
+              "<th>Steps (P/F/E/S)</th><th>Duration</th></tr>" + scenario_rows + "</table>"
+        )
 
     fe = bundle.model.frontend
     if fe.detected:
@@ -162,9 +231,7 @@ def to_html(bundle: AssessReportBundle) -> str:
             f'<p>{_e(frontend_cat.summary) if frontend_cat else ""}</p>'
             + frontend_meta_html
             + f"<table><tr><th>Signal</th><th>Status</th></tr>{frontend_signal_rows}</table>"
-            '<p><em><strong>Browser/UI Execution: NOT_ASSESSED</strong> - browser automation '
-            "adapter is not enabled in this version. Frontend detected does not mean the "
-            "frontend was functionally tested.</em></p>"
+            + f"<p><em>{frontend_browser_note}</em></p>"
         )
     elif frontend_cat is not None:
         frontend_html = (
@@ -282,6 +349,12 @@ def to_html(bundle: AssessReportBundle) -> str:
 
 <h2>Frontend / Web Application</h2>
 {frontend_html}
+
+<h2>Browser Testing</h2>
+{browser_html}
+
+<h2>Web Scenarios</h2>
+{scenario_html}
 
 <h2>Regression</h2>
 {regression_html}

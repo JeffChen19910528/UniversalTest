@@ -95,3 +95,35 @@ def test_two_launches_get_different_ports_when_first_is_still_bound():
     finally:
         server1.shutdown()
         server1.server_close()
+
+
+def test_launch_configures_redacting_log_formatter_without_the_cli(monkeypatch):
+    """Phase 12 QA regression: the packaged one-click `.exe`
+    (`release/windows/launch_gui.py`) calls `launch()` directly and never
+    goes through `cli/main.py::main()`'s `configure_logging()` call -- if
+    `launch()` didn't configure it defensively, that packaged entry point's
+    logger would have no `RedactingFormatter` attached, and an unhandled
+    exception logged server-side (`gui/server.py::_internal_error()`) could
+    write an unredacted secret to the log.
+    """
+    import logging
+
+    from universal_test.core.logging_setup import LOGGER_NAME, RedactingFormatter
+
+    logger = logging.getLogger(LOGGER_NAME)
+    original_handlers = list(logger.handlers)
+    for h in original_handlers:
+        logger.removeHandler(h)
+    try:
+        server = launch(port=0, open_browser=False, block=False)
+        try:
+            assert logger.handlers, "launch() must configure logging even without the CLI"
+            assert any(isinstance(h.formatter, RedactingFormatter) for h in logger.handlers)
+        finally:
+            server.shutdown()
+            server.server_close()
+    finally:
+        for h in list(logger.handlers):
+            logger.removeHandler(h)
+        for h in original_handlers:
+            logger.addHandler(h)

@@ -35,6 +35,15 @@ database = [
     "mysql-connector-python>=8.0",  # MySQL
     "pyodbc>=5.0",              # SQL Server (also needs an OS-level ODBC driver)
 ]
+# Playwright is adapter-local and optional (Phase 9): Core/Discovery/REST/Performance/
+# Assessment/Reporting must all work with zero of it installed. Only imported lazily
+# inside adapters/browser/executor.py; a missing install degrades to a NOT_ASSESSED
+# browser result, never an ImportError surfacing elsewhere. The browser *binary*
+# itself is a separate explicit step (`universal-test browser install`) -- installing
+# this extra never downloads a browser binary by itself.
+browser = [
+    "playwright>=1.40",
+]
 
 [project.scripts]
 universal-test = "universal_test.cli.main:run"

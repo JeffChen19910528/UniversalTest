@@ -44,7 +44,13 @@ def test_summary_carries_baseline_and_current_meta():
 def test_all_categories_present():
     summary = compare(_snapshot(), _snapshot(), performance_thresholds={})
     names = {c.name for c in summary.categories}
-    assert names == {"Functional", "Performance", "Database", "Discovery", "Assessment"}
+    assert names == {"Functional", "Performance", "Database", "Discovery", "Assessment", "Browser", "Web Scenarios"}
+
+
+def test_browser_not_assessed_when_missing_from_both_snapshots():
+    summary = compare(_snapshot(), _snapshot(), performance_thresholds={})
+    browser = next(c for c in summary.categories if c.name == "Browser")
+    assert browser.status == AssessmentStatus.NOT_ASSESSED
 
 
 def test_to_dict_round_trips_shape():
