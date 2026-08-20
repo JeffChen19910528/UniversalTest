@@ -10,3 +10,8 @@ dist/
 # generated report output (default destination; skill.md §19)
 /reports/*
 !/reports/.gitkeep
+
+# Claude Code tooling (local dev assistant files, not part of the product)
+CLAUDE.md
+.claude/
+.claude_recovery/
