@@ -52,3 +52,34 @@ def test_build_systems_detected(fixture_path):
     model = discover(fixture_path("dotnet-api"))
     build_systems = {d.name for d in model.build_systems}
     assert "dotnet sdk" in build_systems
+
+
+def test_cpp_cmake_language_and_project_type(fixture_path):
+    model = discover(fixture_path("cpp-cmake"))
+    names = {d.name: d for d in model.languages}
+    assert "C++" in names
+    assert names["C++"].confidence == DetectionConfidence.DETECTED
+    assert model.primary_language == "C++"
+
+    types = {d.name for d in model.project_types}
+    assert "cpp" in types
+
+    build_systems = {d.name for d in model.build_systems}
+    assert "cmake" in build_systems
+
+    test_frameworks = {d.name for d in model.test_frameworks}
+    assert "CTest" in test_frameworks
+    assert "GoogleTest" in test_frameworks
+
+
+def test_c_makefile_language_and_project_type(fixture_path):
+    model = discover(fixture_path("c-make"))
+    names = {d.name: d for d in model.languages}
+    assert "C" in names
+    assert model.primary_language == "C"
+
+    types = {d.name for d in model.project_types}
+    assert "c" in types
+
+    build_systems = {d.name for d in model.build_systems}
+    assert "make" in build_systems

@@ -33,6 +33,8 @@ class ManifestBundle:
     composer_json: dict | None = None
     go_mod: str | None = None
     cargo_toml: dict | None = None
+    cmake_texts: list[str] = field(default_factory=list)
+    conanfile_texts: list[str] = field(default_factory=list)
     parse_warnings: list[str] = field(default_factory=list)
 
     def by_name(self, *names: str) -> list[ScannedFile]:
@@ -108,6 +110,16 @@ def load_manifests(root: Path, files: list[ScannedFile]) -> ManifestBundle:
                 bundle.cargo_toml = tomllib.load(fh)
         except (OSError, tomllib.TOMLDecodeError) as exc:
             bundle.parse_warnings.append(f"could not parse Cargo.toml: {exc}")
+
+    for f in bundle.by_name("CMakeLists.txt"):
+        text = read_text_safe(f.path)
+        if text:
+            bundle.cmake_texts.append(text)
+
+    for f in bundle.by_name("conanfile.txt", "conanfile.py"):
+        text = read_text_safe(f.path)
+        if text:
+            bundle.conanfile_texts.append(text)
 
     return bundle
 

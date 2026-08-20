@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import re
+
 from universal_test.core.models.enums import DetectionConfidence
 from universal_test.core.models.evidence import Evidence
 from universal_test.discovery.filesystem import ScannedFile, find_test_directories
@@ -108,6 +110,24 @@ def detect_test_frameworks(files: list[ScannedFile], manifests: ManifestBundle) 
         if rust_test_files:
             evidence.append(Evidence("file_pattern", {"count": len(rust_test_files)}))
         detections.append(TestFrameworkDetection("cargo test", confidence, evidence))
+
+    cmake_blob = "\n".join(manifests.cmake_texts).lower()
+    conan_blob = "\n".join(manifests.conanfile_texts).lower()
+    native_blob = cmake_blob + "\n" + conan_blob
+
+    if "enable_testing" in cmake_blob or "add_test" in cmake_blob or manifests.by_name("CTestConfig.cmake"):
+        detections.append(TestFrameworkDetection(
+            "CTest", DetectionConfidence.DETECTED,
+            [Evidence("manifest_file", {"file": "CMakeLists.txt", "matched": "enable_testing/add_test"})],
+        ))
+    for token, name in (("gtest", "GoogleTest"), ("googletest", "GoogleTest"), ("catch2", "Catch2"), ("unity", "Unity")):
+        # word-boundary match: "unity"/"gtest" are short enough to false-positive
+        # inside unrelated words ("community", "opportunity") otherwise.
+        if re.search(rf"\b{re.escape(token)}\b", native_blob) and not any(d.name == name for d in detections):
+            detections.append(TestFrameworkDetection(
+                name, DetectionConfidence.DETECTED,
+                [Evidence("dependency_or_config", {"source": "CMakeLists.txt/conanfile", "matched": token})],
+            ))
 
     return detections
 

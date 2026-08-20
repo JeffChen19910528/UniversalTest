@@ -34,6 +34,10 @@ _EXTENSION_LANGUAGE = {
     ".sql": "SQL",
     ".css": "CSS",
     ".scss": "SCSS",
+    ".c": "C",
+    ".h": "C",  # re-tagged to "C++" below when C++-only extensions dominate the same tree
+    ".cpp": "C++", ".cc": "C++", ".cxx": "C++", ".c++": "C++",
+    ".hpp": "C++", ".hh": "C++", ".hxx": "C++", ".h++": "C++", ".ipp": "C++", ".inl": "C++",
 }
 
 # manifest/marker evidence considered a strong, direct signal for a language
@@ -49,16 +53,31 @@ _MANIFEST_MARKERS = {
     "Kotlin": [],  # shares build.gradle.kts / build.gradle with Java; disambiguated via file extensions
     "Swift": ["Package.swift"],
     "Solidity": ["hardhat.config.js", "hardhat.config.ts", "foundry.toml"],
+    # CMakeLists.txt/meson.build are shared by C and C++; vcpkg.json and
+    # conanfile.* are effectively C++-only in practice (both package managers
+    # are dominated by C++ libraries), so they only count as C++ evidence.
+    "C": ["CMakeLists.txt", "meson.build"],
+    "C++": ["CMakeLists.txt", "meson.build", "conanfile.txt", "conanfile.py", "vcpkg.json"],
 }
+
+_CPP_ONLY_EXTENSIONS = {".cpp", ".cc", ".cxx", ".c++", ".hpp", ".hh", ".hxx", ".h++", ".ipp", ".inl"}
 
 _MIN_FILES_FOR_INFERRED = 1
 _MIN_FILES_FOR_DETECTED_WITHOUT_MANIFEST = 3
 
 
 def detect_languages(files: list[ScannedFile], manifests: ManifestBundle) -> list[LanguageDetection]:
+    # ".h" is ambiguous between C and C++; if the tree also has C++-only
+    # extensions (.cpp/.hpp/...), treat its headers as C++ rather than
+    # splitting single-language codebases into two weak detections.
+    has_cpp_only = any(f.extension in _CPP_ONLY_EXTENSIONS for f in files)
+
     counts: Counter[str] = Counter()
     for f in files:
-        language = _EXTENSION_LANGUAGE.get(f.extension)
+        if f.extension == ".h" and has_cpp_only:
+            language = "C++"
+        else:
+            language = _EXTENSION_LANGUAGE.get(f.extension)
         if language:
             counts[language] += 1
 

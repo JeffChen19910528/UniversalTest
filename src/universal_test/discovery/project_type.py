@@ -9,7 +9,19 @@ from universal_test.discovery.manifests import ManifestBundle
 from universal_test.discovery import frontend as _frontend
 from universal_test.discovery.frontend import FRONTEND_CONFIG_MARKERS as _FRONTEND_CONFIG_MARKERS
 from universal_test.discovery.frontend import FRONTEND_PACKAGE_HINTS as _FRONTEND_PACKAGE_HINTS
+from universal_test.discovery.language import _CPP_ONLY_EXTENSIONS
 from universal_test.discovery.models import BuildSystemDetection, ProjectTypeDetection
+
+# Native build-system marker files shared by C and C++ projects. "Makefile"
+# alone is deliberately excluded here — plenty of Python/Node/Go repos carry
+# a Makefile as a task runner with no C/C++ code, so it would be a weak,
+# misleading signal on its own; it only counts once paired with actual
+# .c/.cpp source evidence (see below).
+_NATIVE_BUILD_MARKERS = (
+    "CMakeLists.txt", "meson.build", "configure.ac", "configure.in",
+    "conanfile.txt", "conanfile.py", "vcpkg.json", "WORKSPACE", "BUILD.bazel",
+)
+_MIN_NATIVE_FILES_WITHOUT_MARKER = 3
 
 
 def detect_project_types(files: list[ScannedFile], manifests: ManifestBundle) -> list[ProjectTypeDetection]:
@@ -96,6 +108,29 @@ def detect_project_types(files: list[ScannedFile], manifests: ManifestBundle) ->
             evidence=[Evidence("manifest_file", {"file": "composer.json"})],
         ))
 
+    c_files = [f for f in files if f.extension == ".c"]
+    cpp_files = [f for f in files if f.extension in _CPP_ONLY_EXTENSIONS]
+    h_files = [f for f in files if f.extension == ".h"]
+    native_markers = manifests.by_name(*_NATIVE_BUILD_MARKERS) + manifests.by_name("Makefile", "makefile", "GNUmakefile")
+    native_marker_names = sorted({m.relative for m in native_markers})
+
+    if cpp_files and (native_marker_names or len(cpp_files) + len(h_files) >= _MIN_NATIVE_FILES_WITHOUT_MARKER):
+        evidence = [Evidence("file_extension_count", {"count": len(cpp_files) + len(h_files)})]
+        confidence = DetectionConfidence.DETECTED
+        if native_marker_names:
+            evidence.append(Evidence("manifest_file", {"files": native_marker_names}))
+        else:
+            confidence = DetectionConfidence.INFERRED
+        detections.append(ProjectTypeDetection(name="cpp", confidence=confidence, evidence=evidence))
+    elif (c_files or h_files) and (native_marker_names or len(c_files) >= _MIN_NATIVE_FILES_WITHOUT_MARKER):
+        evidence = [Evidence("file_extension_count", {"count": len(c_files) + len(h_files)})]
+        confidence = DetectionConfidence.DETECTED
+        if native_marker_names:
+            evidence.append(Evidence("manifest_file", {"files": native_marker_names}))
+        else:
+            confidence = DetectionConfidence.INFERRED
+        detections.append(ProjectTypeDetection(name="c", confidence=confidence, evidence=evidence))
+
     if not detections:
         detections.append(ProjectTypeDetection(
             name="generic", confidence=DetectionConfidence.UNKNOWN,
@@ -174,5 +209,24 @@ def detect_build_systems(files: list[ScannedFile], manifests: ManifestBundle) ->
     if manifests.composer_json is not None:
         detections.append(BuildSystemDetection("composer", DetectionConfidence.DETECTED,
                                                  [Evidence("manifest_file", {"file": "composer.json"})]))
+
+    if manifests.by_name("CMakeLists.txt"):
+        detections.append(BuildSystemDetection("cmake", DetectionConfidence.DETECTED,
+                                                 [Evidence("manifest_file", {"file": "CMakeLists.txt"})]))
+    if manifests.by_name("meson.build"):
+        detections.append(BuildSystemDetection("meson", DetectionConfidence.DETECTED,
+                                                 [Evidence("manifest_file", {"file": "meson.build"})]))
+    if manifests.by_name("WORKSPACE", "BUILD.bazel"):
+        detections.append(BuildSystemDetection("bazel", DetectionConfidence.DETECTED,
+                                                 [Evidence("manifest_file", {"file": "WORKSPACE/BUILD.bazel"})]))
+    if manifests.conanfile_texts:
+        detections.append(BuildSystemDetection("conan", DetectionConfidence.DETECTED,
+                                                 [Evidence("manifest_file", {"file": "conanfile.txt/conanfile.py"})]))
+    if manifests.by_name("vcpkg.json"):
+        detections.append(BuildSystemDetection("vcpkg", DetectionConfidence.DETECTED,
+                                                 [Evidence("manifest_file", {"file": "vcpkg.json"})]))
+    if not any(d.name in ("cmake", "meson", "bazel") for d in detections) and manifests.by_name("Makefile", "makefile", "GNUmakefile"):
+        detections.append(BuildSystemDetection("make", DetectionConfidence.INFERRED,
+                                                 [Evidence("manifest_file", {"file": "Makefile"})]))
 
     return detections
