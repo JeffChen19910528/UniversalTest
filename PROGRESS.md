@@ -3028,3 +3028,70 @@ follow-up". Any future AI-assisted testing, visual regression,
 accessibility/security scanning, or mobile/cloud/distributed browser
 testing request is new, separately-scoped product work — it does not
 reopen this phase.
+
+---
+
+## Discovery — C/C++ language support — ✅ Done (2026-08-20)
+
+Not a new roadmap phase — an extension to Phase 2 Discovery, adding a
+language family it never covered (Web capability itself remains frozen
+per Phase 12).
+
+### Files changed
+
+- `src/universal_test/discovery/language.py` — `.c`/`.h` → C, `.cpp`/`.cc`/
+  `.cxx`/`.c++`/`.hpp`/`.hh`/`.hxx`/`.h++`/`.ipp`/`.inl` → C++; shared `.h`
+  headers re-tagged C++ when C++-only extensions are also present in the
+  tree; `CMakeLists.txt`/`meson.build`/`conanfile.*`/`vcpkg.json` added as
+  manifest evidence.
+- `src/universal_test/discovery/manifests.py` — reads `CMakeLists.txt` and
+  `conanfile.txt`/`conanfile.py` content (`cmake_texts`/`conanfile_texts`)
+  for the test-framework detector below.
+- `src/universal_test/discovery/project_type.py` — `c`/`cpp` project types
+  (native build marker + source-extension evidence, `Makefile` alone is
+  deliberately excluded as marker evidence — too many non-native repos
+  carry one as a task runner); `cmake`/`meson`/`bazel`/`conan`/`vcpkg`/
+  `make` build-system detection.
+- `src/universal_test/discovery/test_framework.py` — CTest (`enable_testing`/
+  `add_test` in CMakeLists.txt), GoogleTest/Catch2/Unity (word-boundary
+  token match against CMakeLists.txt/conanfile content, to avoid
+  substrings like "community" false-matching "unity").
+- `tests/discovery/test_language_and_project_type.py` — two new tests.
+- `tests/fixtures/cpp-cmake/`, `tests/fixtures/c-make/` — new fixture
+  projects (CMake+GoogleTest C++ project; Makefile-only plain C project).
+- `SPECIFICATION.md` §4.2, `ROADMAP.md` (Phase 2 row), `CHANGELOG.md`
+  (this entry).
+
+### Tests executed
+
+`python -m pytest tests -q --ignore=tests/gui` → **740 passed, 5 skipped**.
+Full suite (`tests/gui` included) → 2 pre-existing failures
+(`test_gui_web_assessment.py::test_web_assessment_preset_runs_static_web_project`,
+`test_gui_web_scenarios.py::test_scenario_run_real_execution`), confirmed
+present on the pre-change baseline via `git stash` — unrelated to this
+change (environment lacks an installed Playwright browser), not
+regressions introduced here.
+
+### Known limitations
+
+Discovery only — no C/C++ adapter (no build execution, no test-runner
+integration). That remains scoped to Phase 13 (.NET/Node/Python adapters)
+or a future, separately-scoped native-adapter phase; not implied or
+started by this change.
+
+### Cross-platform check (user request, not a new phase)
+
+Audited `src/` for Windows-only assumptions (hardcoded backslash paths,
+`winreg`/`ctypes.windll`, `shell=True`/`cmd.exe`/`powershell` calls,
+Windows-only dependencies). None found. `sys.platform` branches in
+`gui/server.py` are correctly implemented for all three platforms
+(`os.startfile` / `open` / `xdg-open`). The only Windows-only artifact is
+the packaging script `release/windows/build.ps1`, which produces the
+one-click `.exe` and is not part of the runtime code path — no changes
+needed for Linux/macOS.
+
+### Next phase
+
+Unchanged — Phase 13 (.NET/Node/Python adapters) remains the next
+roadmap phase; this was a discovery-layer extension, not a phase
+advance.

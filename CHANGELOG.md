@@ -5,6 +5,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Added
+
+- C/C++ discovery support: language detection (`.c`/`.h` → C, `.cpp`/`.cc`/
+  `.cxx`/`.hpp`/... → C++, with shared `.h` headers disambiguated as C++
+  when C++-only extensions are also present), `c`/`cpp` project types,
+  CMake/Meson/Bazel/Make/Conan/vcpkg build-system detection, and CTest/
+  GoogleTest/Catch2/Unity test-framework detection (read from CMakeLists.txt
+  / conanfile content). Extension to the existing Phase 2 Discovery engine —
+  same evidence-first, manifest-anchored method as every other language.
+
 Phase 12 — Final Web QA / Freeze. Not a feature-development phase — a
 validation-and-freeze pass over Phases 9-11's Web capabilities. **Web
 capability is frozen after this phase**; see

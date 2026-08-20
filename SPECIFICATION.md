@@ -66,15 +66,17 @@ confidence + evidence (never a bare assertion):
   file count, test directories. Never mutates the repository (git commands
   used are limited to `rev-parse`/`status --porcelain`).
 - **Languages**: Python, JavaScript, TypeScript, C#, Java, Go, Rust, PHP,
-  Kotlin, Swift, Solidity, SQL — anchored on manifest/marker-file evidence,
-  not bare extension counts (see `ARCHITECTURE.md` §6.2).
-- **Project types**: python, node, dotnet, java, go, rust, php, frontend,
-  generic (fallback when nothing else matches).
+  Kotlin, Swift, Solidity, SQL, C, C++ — anchored on manifest/marker-file
+  evidence, not bare extension counts (see `ARCHITECTURE.md` §6.2). Shared
+  `.h` headers are disambiguated as C++ when C++-only extensions
+  (`.cpp`/`.cc`/`.hpp`/...) are also present in the tree.
+- **Project types**: python, node, dotnet, java, go, rust, php, c, cpp,
+  frontend, generic (fallback when nothing else matches).
 - **Frameworks**: ASP.NET Core, WinForms, WPF, React, Angular, Vue, Node.js,
   Express, FastAPI, Django, Flask, Spring Boot, Laravel, Hardhat, Foundry —
   only asserted from concrete manifest-dependency or marker-file evidence.
 - **Build systems**: pip/poetry, npm/yarn/pnpm, dotnet sdk, maven/gradle, go
-  modules, cargo, composer.
+  modules, cargo, composer, cmake, meson, bazel, conan, vcpkg, make.
 - **Infrastructure**: Dockerfile, Docker Compose, Kubernetes (directory or
   bounded YAML content scan), Terraform, GitHub Actions, GitLab CI, Jenkins,
   Azure Pipelines.
@@ -86,7 +88,8 @@ confidence + evidence (never a bare assertion):
   (`routes/`, `controllers/`, `api/` — weak/`INFERRED` evidence only). Real
   endpoint parsing is Phase 3.
 - **Test frameworks**: pytest, unittest, Jest, Vitest, Mocha, NUnit, xUnit,
-  MSTest, JUnit, go test, cargo test — plus test-directory discovery.
+  MSTest, JUnit, go test, cargo test, CTest, GoogleTest, Catch2, Unity —
+  plus test-directory discovery.
 - **Secrets**: pattern-based scan (password/token/api_key/secret/connection-
   string/private-key patterns) reporting only `file`, `line`, `pattern_type`
   — the matched value is never captured, logged, or serialized. A pattern
