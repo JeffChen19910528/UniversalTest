@@ -3095,3 +3095,67 @@ needed for Linux/macOS.
 Unchanged — Phase 13 (.NET/Node/Python adapters) remains the next
 roadmap phase; this was a discovery-layer extension, not a phase
 advance.
+
+---
+
+## Maintainability pass — low-coupling refactor (user request, not a new phase, 2026-08-22)
+
+### Files changed
+
+- `src/universal_test/cli/parser.py` — new module. Moved `build_parser()`
+  and its `_add_common_args` / `_add_auth_args` / `_add_test_args` /
+  `_add_performance_args` / `_add_database_args` / `_add_baseline_args` /
+  `_add_pipeline_args` / `_add_assess_args` helpers out of `cli/main.py`
+  verbatim (no logic changes).
+- `src/universal_test/cli/main.py` — now imports `build_parser` from
+  `cli.parser` and re-exports it, keeping only command routing (`main`,
+  `run`) and the `_run_*`/`_maybe_run_*` command handlers. Dropped the
+  now-unused `from universal_test import __version__` import (only
+  `build_parser` needed it). Net: 1407 lines → ~1075 lines in `main.py`,
+  plus the new ~340-line `parser.py`.
+
+### Rationale
+
+Surveyed `src/universal_test/` for architecture-boundary violations first
+(skill.md's mandated Core/Adapter separation): no violations found — `core/`
+does not import from `discovery/`, `adapters/`, `testing/`, `assessment/`,
+`reporting/`, `cli/`, `gui/`, `quality_gate/`, or `regression/`. That
+boundary was already clean.
+
+The next-largest maintainability problem was `cli/main.py` at 1407 lines,
+mixing two concerns that change for different reasons: argparse flag
+wiring (which flags exist, their help text, choices, defaults) and command
+execution (what each subcommand actually does). Splitting them makes each
+half easier to read, test, and change in isolation, and shrinks the
+argparse-only class of changes to a ~340-line file instead of requiring a
+scroll through 1400 lines of command logic. `build_parser`/`main` keep
+their existing import path (`universal_test.cli.main`), so this is a
+zero-behavior-change internal refactor.
+
+Deliberately did not: touch `gui/server.py` (539 lines) or
+`discovery/frontend.py` (615 lines) — both are large but single-purpose
+(HTTP route table; frontend-framework detection heuristics respectively),
+not mixed-concern god-files, so splitting them would be churn without a
+coupling payoff. Did not touch adapter-to-adapter code that looks
+similar (e.g. each adapter's `{text,json,markdown}` serializer-dict
+pattern in `cli/main.py`) since that's intentional consistency mandated
+by the report-format contract, not duplication to de-duplicate.
+
+### Tests executed
+
+`python -m pytest tests/cli -q` → **112 passed, 1 skipped** (immediately
+after the split). Full suite `python -m pytest -q` → **787 passed, 6
+skipped**, same 2 pre-existing `tests/gui` failures as the pre-refactor
+baseline (Playwright not installed in this environment; unrelated to this
+change, confirmed present before touching anything). No new failures, no
+reduced pass count.
+
+### Known limitations
+
+Scoped refactor, not a rearchitecture — no public CLI behavior, report
+schema, or entry-point contract changed.
+
+### Next phase
+
+Unchanged — Phase 13 (.NET/Node/Python adapters) remains the next roadmap
+phase.

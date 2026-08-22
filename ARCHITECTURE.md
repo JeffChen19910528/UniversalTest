@@ -1126,7 +1126,7 @@ principle extended here rather than re-litigated).
 `universal-test baseline save <path> --output baseline.json [--target ...]
 [--performance ...] [--database-profile ...]` and `universal-test baseline
 compare <path> --baseline baseline.json [same flags]` share every flag
-`assess` has via a common `_add_pipeline_args()` (`cli/main.py`) — the exact
+`assess` has via a common `_add_pipeline_args()` (`cli/parser.py`) — the exact
 same OpenAPI/auth/performance/database flags, not a parallel or looser set.
 `assess` itself gains an opt-in `--baseline <path>` flag that attaches a
 `regression` section to the unified report using the *current* run's
@@ -1398,6 +1398,12 @@ placeholder the user fills in — universal-test never assumes a
 
 `argparse`-based; the `universal-test` console script resolves to
 `cli.main:run` (which calls `main()` and exits with its return code).
+Argument-parser wiring (`build_parser()` and its `_add_*_args` helpers,
+described below) lives in `cli/parser.py`; `cli/main.py` imports and
+re-exports `build_parser` and owns command routing plus the `_run_*`
+command handlers — a maintainability split with no behavior change
+(2026-08-22), so every subcommand/flag described in this section is
+unchanged.
 Subcommands: `scan, assess, test, performance, database, baseline, report,
 run` (`baseline` has its own `save`/`compare` sub-subparsers, added via a
 nested `add_subparsers(dest="baseline_command")` on the `baseline`

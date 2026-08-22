@@ -5,6 +5,16 @@ Format loosely follows [Keep a Changelog](https://keepachangelog.com/).
 
 ## [Unreleased]
 
+### Changed
+
+- Split `cli/main.py`'s argparse wiring (`build_parser` and its `_add_*_args`
+  helpers, ~340 lines) into a new `cli/parser.py`. `cli/main.py` keeps
+  command routing and the `_run_*` handlers only. No behavior change --
+  `build_parser`/`main` are re-exported from `cli.main` exactly as before,
+  so existing imports and the console-script entry point are unaffected.
+  Purely an internal maintainability cleanup: argument-parsing wiring and
+  command-execution logic now change independently of each other.
+
 ### Added
 
 - C/C++ discovery support: language detection (`.c`/`.h` → C, `.cpp`/`.cc`/
